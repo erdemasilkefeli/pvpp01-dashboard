@@ -1,0 +1,1558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mezobereny PVPP — HUPX Forecast Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --text:     #e6edf3;
+    --sub:      #8b949e;
+    --ecmwf:    #2196F3;
+    --icon:     #4CAF50;
+    --arpege:   #FF9800;
+    --ensemble: #e040fb;
+    --dam:      #fdd835;
+    --aiolos:   #f06292;
+    --accent:   #f0b429;
+    --danger:   #f85149;
+    --good:     #3fb950;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  header h1 { font-size: 17px; font-weight: 600; white-space: nowrap; }
+  header h1 span { color: var(--accent); }
+  #clock { font-size: 12px; color: var(--sub); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #status-bar { font-size: 11px; color: var(--sub); margin-top: 2px; }
+  .hdr-btns { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .btn {
+    background: #21262d; border: 1px solid var(--border); color: var(--text);
+    padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    transition: background .15s; white-space: nowrap;
+  }
+  .btn:hover { background: #30363d; }
+  .btn.aiolos { border-color: var(--aiolos); color: var(--aiolos); }
+  .btn.aiolos:hover { background: rgba(240,98,146,.1); }
+  .btn.dam { border-color: var(--dam); color: var(--dam); }
+  .btn.dam:hover { background: rgba(253,216,53,.1); }
+
+  /* ── KPI strip ── */
+  .kpi-strip {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px;
+    background: var(--border); border-bottom: 1px solid var(--border);
+  }
+  .kpi { background: var(--surface); padding: 11px 14px; display: flex; flex-direction: column; gap: 3px; }
+  .kpi-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--sub); }
+  .kpi-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi-unit  { font-size: 10px; color: var(--sub); }
+
+  /* ── Panels ── */
+  .panel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 18px 20px; }
+  .panel-title {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--sub); margin-bottom: 12px;
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  }
+  .badge {
+    background: #21262d; border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 6px; font-size: 10px; color: var(--sub);
+    font-weight: 400; text-transform: none; letter-spacing: 0;
+  }
+  .badge.aiolos { border-color: var(--aiolos);    color: var(--aiolos); }
+  .badge.ok     { border-color: var(--good);      color: var(--good); }
+
+  .chart-wrap      { position: relative; height: 260px; }
+  .chart-wrap.tall { height: 340px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
+
+  /* ── Legend (interactive toggle buttons) ── */
+  .legend { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 12px; }
+  .leg-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #21262d; border: 1px solid var(--border); border-radius: 20px;
+    color: var(--text); font-size: 11px; padding: 3px 10px 3px 8px;
+    cursor: pointer; transition: opacity .15s, background .15s; user-select: none;
+  }
+  .leg-btn:hover { background: #30363d; }
+  .leg-btn.off   { opacity: .28; background: transparent; }
+  .leg-btn.off:hover { opacity: .5; }
+  .leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Coord tag ── */
+  .coord-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #21262d; border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 10px;
+    font-size: 12px; color: var(--sub); margin-bottom: 12px;
+  }
+  .coord-tag strong { color: var(--text); }
+
+  /* ── Refresh status bar ── */
+  .refresh-bar {
+    background: #0d1117; border-bottom: 1px solid var(--border);
+    padding: 5px 20px; display: flex; gap: 24px; font-size: 11px; color: var(--sub);
+  }
+  .refresh-item { display: flex; align-items: center; gap: 6px; }
+  .refresh-dot  { width: 7px; height: 7px; border-radius: 50%; background: var(--sub); }
+  .refresh-dot.active { background: var(--good); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Table ── */
+  .tbl-wrap { overflow-x: auto; max-height: 340px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th {
+    position: sticky; top: 0; background: #1c2128;
+    padding: 6px 8px; text-align: right; color: var(--sub);
+    font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  th:first-child { text-align: left; }
+  td { padding: 4px 8px; text-align: right; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  td:first-child { text-align: left; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: #1c2128; }
+  .dam-val { color: var(--dam); font-weight: 600; }
+  .bar-cell { position: relative; min-width: 90px; padding: 0 5px 0 0 !important; }
+  .bar-bg   { position: absolute; left:0; top:4px; bottom:4px; background:#21262d; width:100%; border-radius:2px; }
+  .bar-fill { position: absolute; left:0; top:4px; bottom:4px; border-radius:2px; }
+  .bar-text { position: relative; z-index:1; font-variant-numeric:tabular-nums; }
+
+  /* ── Aiolos indicator in table ── */
+  .aiolos-val { color: var(--aiolos); font-weight: 600; }
+
+  /* ═══════════════════════════════════════════════════════
+     AIOLOS MODAL
+  ═══════════════════════════════════════════════════════ */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.7); z-index: 1000;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; width: min(760px, 96vw); max-height: 90vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .modal-header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-header h2 { font-size: 15px; font-weight: 600; }
+  .modal-header h2 span { color: var(--aiolos); }
+  .modal-close { background:none; border:none; color:var(--sub); font-size:20px; cursor:pointer; line-height:1; }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 16px 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+  .modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); display:flex; gap:8px; justify-content:flex-end; }
+
+  .input-hint {
+    background: #0d1117; border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; font-size: 11px; color: var(--sub); line-height: 1.6;
+  }
+  .input-hint code { color: var(--accent); font-family: monospace; }
+
+  .aiolos-ta {
+    width: 100%; min-height: 200px; background: #0d1117;
+    border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: monospace; font-size: 12px;
+    padding: 10px 12px; resize: vertical; outline: none;
+    line-height: 1.5;
+  }
+  .aiolos-ta:focus { border-color: var(--aiolos); }
+  #aiolos-parse-result { font-size: 12px; min-height: 18px; }
+  .aiolos-ta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .aiolos-ta-col label { display: block; font-size: 11px; font-weight: 600; color: var(--sub); margin-bottom: 6px; letter-spacing: .05em; text-transform: uppercase; }
+  .aiolos-date-row { display: flex; align-items: center; gap: 10px; }
+  .aiolos-date-row label { font-size: 12px; color: var(--sub); white-space: nowrap; }
+  #aiolos-date {
+    background: #0d1117; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-size: 13px; padding: 6px 10px; outline: none;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  #aiolos-date:focus { border-color: var(--aiolos); }
+
+  .btn-primary {
+    background: var(--aiolos); border: none; color: #fff;
+    padding: 7px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;
+    transition: opacity .15s;
+  }
+  .btn-primary:hover { opacity: .85; }
+  .btn-danger {
+    background: #21262d; border: 1px solid var(--danger); color: var(--danger);
+    padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+
+  /* ── Loading / error ── */
+  .loading { display:flex; align-items:center; justify-content:center; height:160px; color:var(--sub); gap:10px; }
+  .spinner { width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .error-msg { color:var(--danger); text-align:center; padding:16px; font-size:12px; }
+
+  /* ── Nomination suggestion panel ── */
+  .nom-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+  .nom-stat { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+  .nom-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--sub); margin-bottom: 4px; }
+  .nom-stat-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .nom-stat-sub   { font-size: 10px; color: var(--sub); margin-top: 2px; }
+  .conf-high   { color: var(--good); }
+  .conf-medium { color: var(--accent); }
+  .conf-low    { color: var(--danger); }
+  .nom-hint { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 11px; color: var(--sub); line-height: 1.6; }
+  .nom-hint strong { color: var(--text); }
+
+  /* ── Model Performance (Rolling RMSE) ── */
+  .rmse-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+  .rmse-card { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+  .rmse-model { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+  .rmse-metric { display: flex; justify-content: space-between; font-size: 11px; color: var(--sub); padding: 2px 0; }
+  .rmse-metric span { color: var(--text); font-variant-numeric: tabular-nums; }
+  .window-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .wtab { background: #21262d; border: 1px solid var(--border); color: var(--sub); border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer; transition: background .15s; }
+  .wtab.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+  .rmse-no-data { color: var(--sub); font-size: 12px; text-align: center; padding: 30px; }
+  .rmse-no-data code { color: var(--accent); font-family: monospace; }
+
+
+
+  footer { text-align:center; padding:10px; color:var(--sub); font-size:10px; border-top:1px solid var(--border); line-height:1.7; }
+  footer a { color: var(--sub); }
+</style>
+</head>
+<body>
+
+<!-- ═══ AIOLOS INPUT MODAL ══════════════════════════════════════════════ -->
+<div class="modal-overlay" id="aiolos-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>📥 <span>Aiolos</span> Forecast Input</h2>
+      <button class="modal-close" onclick="closeAiolosModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="input-hint">
+        Paste Aiolos forecast data — <strong>192 values per column</strong> (96 for T + 96 for T+1), one per line, no timestamps.<br/>
+        Use <strong>European decimal separator</strong> (comma): e.g. <code>47,878</code> = 47.878 MW · <code>750,1</code> = 750.1 W/m²<br/>
+        Timestamps are auto-generated: midnight of <strong>T</strong> + 15 min × row index → covers T 00:00 – T+1 23:45.
+      </div>
+      <div class="aiolos-date-row">
+        <label for="aiolos-date">Day T (today):</label>
+        <input type="date" id="aiolos-date"/>
+        <span style="font-size:11px;color:var(--sub)">192 intervals × 15 min = 48 h &nbsp;·&nbsp; rows 1–96 = T &nbsp;·&nbsp; rows 97–192 = T+1</span>
+      </div>
+      <div class="aiolos-ta-row">
+        <div class="aiolos-ta-col">
+          <label>Power Forecast (MW) — 192 values</label>
+          <textarea class="aiolos-ta" id="aiolos-power-ta" placeholder="0,000&#10;0,000&#10;0,977&#10;47,878&#10;...&#10;(rows 1–96: T)&#10;0,000&#10;0,000&#10;0,977&#10;47,878&#10;...&#10;(rows 97–192: T+1)"></textarea>
+        </div>
+        <div class="aiolos-ta-col">
+          <label>GHI Forecast (W/m²) — 192 values</label>
+          <textarea class="aiolos-ta" id="aiolos-ghi-ta" placeholder="0,0&#10;0,0&#10;6,2&#10;750,1&#10;...&#10;(rows 1–96: T)&#10;0,0&#10;0,0&#10;6,2&#10;750,1&#10;...&#10;(rows 97–192: T+1)"></textarea>
+        </div>
+      </div>
+      <div id="aiolos-parse-result"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="clearAiolos()">Clear All</button>
+      <button class="btn" onclick="loadAiolosTemplate()">Load Template</button>
+      <button class="btn-primary" onclick="parseAndSaveAiolos()">Apply Forecast</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DA MARKET NOMINATION MODAL ══════════════════════════════════════ -->
+<div class="modal-overlay" id="dam-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>📋 <span style="color:var(--dam)">DA Market</span> Nomination Input</h2>
+      <button class="modal-close" onclick="closeDamModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="input-hint">
+        Paste DA Market nominations — <strong>192 values</strong> (96 for T + 96 for T+1), one per line, no timestamps.<br/>
+        Values in <strong>MW</strong> (average power per 15-min slot, e.g. <code>40,500</code> = 40.5 MW · max ≈ <strong>49.8 MW</strong> at AC cap).<br/>
+        Use <strong>European decimal separator</strong> (comma). Timestamps auto-generated from midnight of T.
+      </div>
+      <div class="aiolos-date-row">
+        <label for="dam-date">Day T (today):</label>
+        <input type="date" id="dam-date" style="background:#0d1117;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;padding:6px 10px;outline:none;font-family:'Segoe UI',system-ui,sans-serif;" onfocus="this.style.borderColor='var(--dam)'" onblur="this.style.borderColor='var(--border)'"/>
+        <span style="font-size:11px;color:var(--sub)">192 intervals × 15 min = 48 h &nbsp;·&nbsp; rows 1–96 = T &nbsp;·&nbsp; rows 97–192 = T+1</span>
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--sub);margin-bottom:6px;letter-spacing:.05em;text-transform:uppercase;">Nominated Production (MW) — 192 values</label>
+        <textarea class="aiolos-ta" id="dam-ta" style="min-height:240px;"
+          placeholder="0,000&#10;0,000&#10;2,500&#10;11,875&#10;...&#10;(rows 1–96: T)&#10;0,000&#10;0,000&#10;2,500&#10;11,875&#10;...&#10;(rows 97–192: T+1)"></textarea>
+      </div>
+      <div id="dam-parse-result" style="font-size:12px;min-height:18px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="clearDam()">Clear All</button>
+      <button class="btn" onclick="loadDamTemplate()">Load Template</button>
+      <button class="btn-primary" style="background:var(--dam);color:#1a1a1a;" onclick="parseAndSaveDam()">Apply Nominations</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ HEADER ══════════════════════════════════════════════════════════ -->
+<header>
+  <div>
+    <h1>⚡ <span>Mezobereny PVPP</span> — HUPX Forecast Dashboard</h1>
+    <div id="status-bar">Initialising…</div>
+  </div>
+  <div class="hdr-btns">
+    <div id="clock">--:--:--</div>
+    <button class="btn aiolos" onclick="openAiolosModal()">📥 Aiolos Input</button>
+    <button class="btn dam"   onclick="openDamModal()">📋 DA Nomination</button>
+    <button class="btn" onclick="loadAll()">↻ Refresh All</button>
+  </div>
+</header>
+
+<!-- ═══ REFRESH STATUS ══════════════════════════════════════════════════ -->
+<div class="refresh-bar">
+  <div class="refresh-item">
+    <div class="refresh-dot" id="dot-nwp"></div>
+    <span>NWP: <span id="nwp-last">—</span> &nbsp;·&nbsp; next refresh in <span id="nwp-countdown">—</span></span>
+  </div>
+  <div class="refresh-item">
+    <div class="refresh-dot" id="dot-aiolos" style="background:var(--aiolos);opacity:.4"></div>
+    <span>Aiolos: <span id="aiolos-status">No data loaded</span></span>
+  </div>
+  <div class="refresh-item">
+    <div class="refresh-dot" id="dot-dam" style="background:var(--dam);opacity:.4"></div>
+    <span>DA Nom: <span id="dam-status">No nominations loaded</span></span>
+  </div>
+</div>
+
+<!-- ═══ KPI STRIP ════════════════════════════════════════════════════════ -->
+<div class="kpi-strip">
+  <div class="kpi">
+    <span class="kpi-label">Today (Ensemble)</span>
+    <span class="kpi-value" id="kpi-today-mwh">—</span>
+    <span class="kpi-unit">MWh</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Today (Aiolos)</span>
+    <span class="kpi-value" id="kpi-today-aiolos" style="color:var(--aiolos)">—</span>
+    <span class="kpi-unit">MWh</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Today (DA Nom)</span>
+    <span class="kpi-value" id="kpi-today-dam" style="color:var(--dam)">—</span>
+    <span class="kpi-unit">MWh</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Tomorrow (Ensemble)</span>
+    <span class="kpi-value" id="kpi-tomorrow-mwh">—</span>
+    <span class="kpi-unit">MWh</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Tomorrow (Aiolos)</span>
+    <span class="kpi-value" id="kpi-tomorrow-aiolos" style="color:var(--aiolos)">—</span>
+    <span class="kpi-unit">MWh</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Tomorrow (DA Nom)</span>
+    <span class="kpi-value" id="kpi-tomorrow-dam" style="color:var(--dam)">—</span>
+    <span class="kpi-unit">MWh</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Peak Power (today)</span>
+    <span class="kpi-value" id="kpi-peak">—</span>
+    <span class="kpi-unit">MW (ensemble)</span>
+  </div>
+</div>
+
+<!-- ═══ MAIN ══════════════════════════════════════════════════════════════ -->
+
+<!-- 1. NWP Power Forecast ───────────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-title">
+    NWP Power Forecast
+    <span class="badge">ECMWF IFS HRES 9 km · ICON-EU 6.5 km · ARPEGE 11 km · Ensemble</span>
+    <span class="badge aiolos" id="aiolos-badge-nwp">Aiolos: no data</span>
+    <span class="badge">Today + Tomorrow</span>
+  </div>
+  <div class="legend">
+    <button class="leg-btn" id="vis-power-ecmwf"    onclick="toggleVis('power','ecmwf')">   <span class="leg-dot" style="background:var(--ecmwf)"></span>ECMWF HRES 9 km</button>
+    <button class="leg-btn" id="vis-power-icon"     onclick="toggleVis('power','icon')">    <span class="leg-dot" style="background:var(--icon)"></span>ICON-EU 6.5 km</button>
+    <button class="leg-btn" id="vis-power-arpege"   onclick="toggleVis('power','arpege')">  <span class="leg-dot" style="background:var(--arpege)"></span>ARPEGE 11 km</button>
+
+    <button class="leg-btn" id="vis-power-ensemble" onclick="toggleVis('power','ensemble')"><span class="leg-dot" style="background:var(--ensemble)"></span>Ensemble (50/35/15%)</button>
+    <button class="leg-btn" id="vis-power-aiolos"   onclick="toggleVis('power','aiolos')">  <span class="leg-dot" style="background:var(--aiolos)"></span>Aiolos</button>
+    <button class="leg-btn" id="vis-power-dam"      onclick="toggleVis('power','dam')">     <span class="leg-dot" style="background:var(--dam)"></span>DA Nomination</button>
+  </div>
+  <div class="chart-wrap tall">
+    <div class="loading" id="loading-power"><div class="spinner"></div> Fetching NWP…</div>
+    <canvas id="chart-power" style="display:none"></canvas>
+  </div>
+</div>
+
+<!-- 2. GHI Comparison + Meteo ──────────────────────────────────────── -->
+<div class="two-col">
+  <div class="panel">
+    <div class="panel-title">
+      GHI Model Comparison
+      <span class="badge">W/m²</span>
+      <span class="badge aiolos" id="aiolos-badge-ghi">Aiolos: no data</span>
+    </div>
+    <div class="legend">
+      <button class="leg-btn" id="vis-ghi-ecmwf"  onclick="toggleVis('ghi','ecmwf')"> <span class="leg-dot" style="background:var(--ecmwf)"></span>ECMWF</button>
+      <button class="leg-btn" id="vis-ghi-icon"   onclick="toggleVis('ghi','icon')">  <span class="leg-dot" style="background:var(--icon)"></span>ICON-EU</button>
+      <button class="leg-btn" id="vis-ghi-arpege" onclick="toggleVis('ghi','arpege')"><span class="leg-dot" style="background:var(--arpege)"></span>ARPEGE</button>
+
+      <button class="leg-btn" id="vis-ghi-aiolos" onclick="toggleVis('ghi','aiolos')"><span class="leg-dot" style="background:var(--aiolos)"></span>Aiolos</button>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-ghi"></canvas></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Temperature &amp; Wind <span class="badge">ICON-EU 6.5 km</span></div>
+    <div class="chart-wrap"><canvas id="chart-meteo"></canvas></div>
+  </div>
+</div>
+
+<!-- 4. HUPX 15-min Table ────────────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-title">
+    HUPX 15-min Generation Schedule
+    <span class="badge">Ensemble + Aiolos + DA Nomination</span>
+  </div>
+  <div class="coord-tag">
+    📍 &nbsp;<strong>Lat 46.89° N &nbsp;·&nbsp; Lon 21.09° E</strong>
+    &nbsp;·&nbsp; Mezobereny, Hungary
+    &nbsp;·&nbsp; Tilt <strong>20°</strong> &nbsp;·&nbsp; Azimuth <strong>180° S</strong>
+    &nbsp;·&nbsp; DC <strong>64.225 MWp</strong> &nbsp;·&nbsp; AC <strong>49.8 MW</strong>
+  </div>
+  <div class="tbl-wrap">
+    <table id="hupx-table">
+      <thead>
+        <tr>
+          <th style="text-align:left">Interval (Budapest)</th>
+          <th>ECMWF HRES<br/><span style="font-weight:400;font-size:10px">9 km (MW)</span></th>
+          <th>ICON-EU<br/><span style="font-weight:400;font-size:10px">6.5 km (MW)</span></th>
+          <th>ARPEGE<br/><span style="font-weight:400;font-size:10px">11 km (MW)</span></th>
+          <th>Ensemble<br/><span style="font-weight:400;font-size:10px">NWP mean (MW)</span></th>
+          <th style="color:var(--aiolos)">Aiolos<br/><span style="font-weight:400;font-size:10px;color:var(--sub)">(MW)</span></th>
+          <th style="color:var(--dam)">DA Nom<br/><span style="font-weight:400;font-size:10px;color:var(--sub)">(MW)</span></th>
+          <th style="min-width:100px">Best Estimate<br/><span style="font-weight:400;font-size:10px">Power bar (MW)</span></th>
+        </tr>
+      </thead>
+      <tbody id="hupx-tbody">
+        <tr><td colspan="8" class="loading"><div class="spinner"></div>&nbsp;Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+
+<!-- 4b. Suggested Nomination ─────────────────────────────────── -->
+<div class="panel" id="panel-nom-suggest">
+  <div class="panel-title">
+    Suggested DA Nomination
+    <span class="badge">Uncertainty-adjusted · auto from NWP spread</span>
+    <span class="badge" id="nom-date-badge">—</span>
+  </div>
+  <div class="nom-grid" id="nom-stats">
+    <div class="nom-stat">
+      <div class="nom-stat-label">Suggested Total</div>
+      <div class="nom-stat-value" id="nom-daily-mwh">—</div>
+      <div class="nom-stat-sub">MWh (day-ahead)</div>
+    </div>
+    <div class="nom-stat">
+      <div class="nom-stat-label">P50 (unconstrained)</div>
+      <div class="nom-stat-value" id="nom-p50-mwh">—</div>
+      <div class="nom-stat-sub">MWh</div>
+    </div>
+    <div class="nom-stat">
+      <div class="nom-stat-label">Conservatism</div>
+      <div class="nom-stat-value" id="nom-cons-pct">—</div>
+      <div class="nom-stat-sub">% of P50 nominated</div>
+    </div>
+    <div class="nom-stat">
+      <div class="nom-stat-label">Confidence</div>
+      <div class="nom-stat-value" id="nom-confidence">—</div>
+      <div class="nom-stat-sub">spread-based</div>
+    </div>
+  </div>
+  <div class="nom-hint" id="nom-hint" style="display:none"></div>
+  <div class="rmse-no-data" id="nom-no-data">
+    No suggestion yet. Run <code>python nomination.py --save</code> to generate.
+  </div>
+</div>
+
+<!-- 5. Model Performance (Rolling RMSE) ────────────────────── -->
+<div class="panel">
+  <div class="panel-title">
+    NWP Model Performance
+    <span class="badge">GHI vs EUMETSAT Satellite Reference</span>
+    <span class="badge" id="rmse-period-badge">no data yet</span>
+  </div>
+  <div class="window-tabs">
+    <button class="wtab active" onclick="setRmseWindow(30,this)">30 days</button>
+    <button class="wtab"        onclick="setRmseWindow(60,this)">60 days</button>
+    <button class="wtab"        onclick="setRmseWindow(90,this)">90 days</button>
+  </div>
+  <div class="rmse-summary" id="rmse-summary-cards"></div>
+  <div class="chart-wrap">
+    <canvas id="chart-rmse" style="display:none"></canvas>
+    <div class="rmse-no-data" id="rmse-no-data">
+      No performance data yet.<br/>
+      Run <code>python rolling_rmse.py</code> once to generate scores,
+      then <code>python pipeline.py</code> will update it daily.
+    </div>
+  </div>
+</div>
+
+<footer>
+  Mezobereny PVPP &nbsp;·&nbsp; 64.225 MWp / 49.8 MW AC &nbsp;·&nbsp;
+  102 760 × DMEGC DM625G12RT-B66HSW &nbsp;·&nbsp; 166 × Huawei SUN2000-330KTL-H1<br/>
+  NWP: <a href="https://open-meteo.com" target="_blank">Open-Meteo</a>
+  (ECMWF IFS HRES 9 km · ICON-EU 6.5 km · ARPEGE Europe 11 km) &nbsp;|&nbsp;
+  NWP refresh: 60 min &nbsp;|&nbsp;
+  <span id="footer-ts">—</span>
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════
+const PLANT = {
+  lat: 46.89, lon: 21.09, tz: "Europe/Budapest",
+  ac_mw: 49.8, tilt: 20,
+  azimuth: 0,           // Open-Meteo convention (0 = south) — used in API request
+  panel_az: 180,        // Meteorological (180° = south) — used in Perez transposition
+  // ── Faiman cell temperature ──────────────────────────────
+  U0: 25.0, U1: 6.84,
+  // ── Module: DMEGC DM625G12RT-B66HSW N-TOPCon bifacial ───
+  gamma:              -0.0029,     // Pmax temp. coefficient (/°C)
+  module_eta:          0.231,      // 23.1% STC efficiency
+  total_area_m2:       277586,     // 102 760 × 2.382 m × 1.134 m
+  bifaciality:         0.80,       // 80% bifacial factor
+  bifacial_rear_frac:  0.12,       // base rear irradiance fraction
+  ground_albedo:       0.20,
+  // ── PR chain: wiring×soiling×mismatch×inverter×trafo×avail ──
+  pr_fixed:            0.8979,     // 0.98×0.97×0.98×0.975×0.993×0.995
+};
+const MODELS = {
+  ecmwf:  { key: "ecmwf_ifs",                  label: "ECMWF IFS HRES 9km", color: "#2196F3" },
+  icon:   { key: "icon_eu",                     label: "ICON-EU 6.5km",   color: "#4CAF50" },
+  arpege: { key: "meteofrance_arpege_europe",   label: "ARPEGE 11km",     color: "#FF9800" },
+};
+const OPEN_METEO = "https://api.open-meteo.com/v1/forecast";
+const VARS = [
+  "shortwave_radiation","diffuse_radiation","direct_normal_irradiance",
+  "global_tilted_irradiance","temperature_2m","windspeed_10m","cloudcover"
+].join(",");
+
+// Refresh intervals
+const NWP_INTERVAL_MS = 60 * 60 * 1000;   // 60 min
+
+// ═══════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════
+let modelData  = {};    // NWP processed records per alias
+let aiolosData = [];    // {dt, ghi, p_ac}
+let damData    = [];    // {dt, mw}   — DA Market nominations (MW)
+
+let nwpLastMs  = 0;
+let nwpTimerId, countdownId;
+
+// ── Visibility state for interactive legend toggles ────────────
+const VIS = {
+  power: { ecmwf:true, icon:true, arpege:true, ensemble:true, aiolos:true, dam:true },
+  ghi:   { ecmwf:true, icon:true, arpege:true, aiolos:true },
+};
+
+// Map chart IDs → redraw functions (filled after function definitions)
+const REDRAW = {};
+
+function toggleVis(chartId, key) {
+  VIS[chartId][key] = !VIS[chartId][key];
+  const btn = document.getElementById(`vis-${chartId}-${key}`);
+  if (btn) btn.classList.toggle('off', !VIS[chartId][key]);
+  if (REDRAW[chartId]) REDRAW[chartId]();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PV Physics — Perez 1990 + bifacial + full PR chain
+// Matches production_forecast.py exactly
+// ═══════════════════════════════════════════════════════════════
+function toRad(d)  { return d * Math.PI / 180; }
+function toDeg(r)  { return r * 180 / Math.PI; }
+
+// ── Solar position (Spencer / Cooper equations) ───────────────
+// Returns { elev: degrees, az: degrees }  (elev may be negative)
+function solarPosition(lat_deg, lon_deg, dt_ms) {
+  const dt   = new Date(dt_ms);
+  const jan1 = Date.UTC(dt.getUTCFullYear(), 0, 1);
+  const doy  = Math.floor((dt_ms - jan1) / 86400000) + 1;   // 1-based
+  const hUTC = dt.getUTCHours() + dt.getUTCMinutes()/60 + dt.getUTCSeconds()/3600;
+
+  const B    = toRad((360/365) * (doy - 81));
+  const decl = toRad(23.45 * Math.sin(B));
+  const eot  = 9.87*Math.sin(2*B) - 7.53*Math.cos(B) - 1.5*Math.sin(B);
+  const lstm = 15 * Math.round(lon_deg / 15);
+  const lst  = hUTC + lstm/15 + (4*(lon_deg - lstm) + eot)/60;
+  const hra  = toRad(15 * (lst - 12));
+  const latR = toRad(lat_deg);
+
+  const sinEl = Math.sin(latR)*Math.sin(decl) + Math.cos(latR)*Math.cos(decl)*Math.cos(hra);
+  const elev  = toDeg(Math.asin(Math.max(-1, Math.min(1, sinEl))));
+
+  if (elev <= 0) return { elev, az: 180 };
+
+  const cosAz = (Math.sin(decl) - Math.sin(toRad(elev))*Math.sin(latR)) /
+                (Math.cos(toRad(elev))*Math.cos(latR));
+  let az = toDeg(Math.acos(Math.max(-1, Math.min(1, cosAz))));
+  if (hra > 0) az = 360 - az;
+  return { elev, az };
+}
+
+// ── Perez 1990 full transposition ────────────────────────────
+// Perez et al., Solar Energy 44(5), 1990.
+const PEREZ_F = [
+  [-0.0083117,  0.5877285, -0.0620636, -0.0596012,  0.0721249, -0.0220216],
+  [ 0.1299457,  0.6825954, -0.1513752, -0.0189325,  0.0659650, -0.0288748],
+  [ 0.3296958,  0.4868735, -0.2210970,  0.0554140, -0.0639588, -0.0260542],
+  [ 0.5682053,  0.1874525, -0.2951290,  0.1088631, -0.1519229, -0.0139754],
+  [ 0.8730280, -0.3920403, -0.3616149,  0.2260952, -0.4620442,  0.0012448],
+  [ 1.1326077, -1.2367284, -0.4118494,  0.2877813, -0.8230357,  0.0558651],
+  [ 1.0601591, -1.5999137, -0.3589221,  0.2642124, -1.1272340,  0.1310694],
+  [ 0.6777470, -0.3272588, -0.2504286,  0.1561313, -1.3765031,  0.2506212],
+];
+
+function perezBin(eps) {
+  const th = [1.065, 1.230, 1.500, 1.950, 2.800, 4.500, 6.200];
+  for (let i = 0; i < th.length; i++) if (eps < th[i]) return i;
+  return 7;
+}
+
+function ghiToPoaPerez(ghi, dni, dhi, elev_deg, panel_tilt_deg, panel_az_deg, solar_az_deg) {
+  if (ghi <= 0 || elev_deg <= 0) return 0;
+
+  const elevR  = toRad(elev_deg);
+  const tiltR  = toRad(panel_tilt_deg);
+  const azDiff = toRad(panel_az_deg - solar_az_deg);
+
+  const cosAoi = Math.max(0,
+    Math.sin(elevR)*Math.cos(tiltR) + Math.cos(elevR)*Math.sin(tiltR)*Math.cos(azDiff)
+  );
+
+  // Erbs decomposition fallback if DNI/DHI both absent
+  if ((!dni || dni <= 0) && (!dhi || dhi <= 0)) {
+    const kt = Math.min(ghi / Math.max(1367 * Math.sin(elevR), 1), 1);
+    dhi = kt <= 0.22 ? Math.max(0, ghi * (1 - 0.09*kt))
+        : kt <= 0.80 ? Math.max(0, ghi * (0.9511 - 0.1604*kt + 4.388*kt**2 - 16.638*kt**3 + 12.336*kt**4))
+        :               Math.max(0, ghi * 0.165);
+    dni = Math.max(0, (ghi - dhi) / Math.max(Math.sin(elevR), 0.01));
+  } else {
+    dhi = Math.max(0, dhi || 0);
+    dni = Math.max(0, dni || 0);
+  }
+
+  const z_deg = 90 - elev_deg;
+  const epsNum = ((dhi + dni) / Math.max(dhi, 0.001)) + 5.535e-6 * z_deg**3;
+  const epsDen = 1 + 5.535e-6 * z_deg**3;
+  const epsilon = Math.max(1, epsNum / Math.max(epsDen, 1e-6));
+
+  const am    = Math.min(1 / Math.max(Math.sin(elevR), 0.01), 40);
+  const delta = dhi * am / 1367;
+  const zenR  = toRad(z_deg);
+
+  const [f11,f12,f13,f21,f22,f23] = PEREZ_F[perezBin(epsilon)];
+  const F1 = Math.max(0, f11 + f12*delta + f13*zenR);
+  const F2 = f21 + f22*delta + f23*zenR;
+
+  const a_coef = Math.max(0, cosAoi);
+  const b_coef = Math.max(Math.cos(toRad(85)), Math.sin(elevR));
+
+  return Math.max(0,
+    dni * cosAoi +                                           // beam
+    dhi * F1 * a_coef / Math.max(b_coef, 1e-6) +           // circumsolar
+    dhi * F2 * Math.sin(tiltR) +                            // horizon brightening
+    dhi * (1 - F1) * (1 + Math.cos(tiltR)) / 2 +           // isotropic diffuse
+    ghi * PLANT.ground_albedo * (1 - Math.cos(tiltR)) / 2  // ground reflected
+  );
+}
+
+// ── GHI → POA (public entry point) ───────────────────────────
+function ghiToPoa(ghi, dhi, dni, _gti, dt_ms) {
+  // Always use Perez 1990 — ignores GTI from API for model consistency
+  if (ghi <= 0) return 0;
+  const pos = solarPosition(PLANT.lat, PLANT.lon, dt_ms);
+  if (pos.elev <= 0) return 0;
+  return ghiToPoaPerez(ghi, dni, dhi, pos.elev, PLANT.tilt, PLANT.panel_az, pos.az);
+}
+
+// ── AC power (area-based + bifacial + PR) ─────────────────────
+// Signature: pvPower(poa, ghi, dhi, t_amb, wind)
+// Matches production_forecast.py physics_forecast_single()
+function pvPower(poa, ghi, dhi, t_amb, wind) {
+  if (poa <= 0) return 0;
+  // Faiman (2008) cell temperature
+  const t_cell     = t_amb + poa / (PLANT.U0 + PLANT.U1 * Math.max(wind, 0.5));
+  const tempFactor = Math.max(0, 1 + PLANT.gamma * (t_cell - 25));
+  // Dynamic bifacial rear fraction (cloud proxy: DHI/GHI ratio)
+  const dhiFrac    = Math.min((dhi || 0) / Math.max(ghi || 1, 1), 1);
+  const rearFrac   = PLANT.bifacial_rear_frac * (1 - 0.3 * dhiFrac);
+  const poaEff     = poa + PLANT.bifaciality * (ghi || 0) * rearFrac;
+  // DC → AC
+  const p_dc_mw    = (poaEff * PLANT.total_area_m2 * PLANT.module_eta * tempFactor * PLANT.pr_fixed) / 1e6;
+  return Math.min(Math.max(p_dc_mw, 0), PLANT.ac_mw);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Open-Meteo fetch + process
+// ═══════════════════════════════════════════════════════════════
+async function fetchNWP(modelKey) {
+  const url = new URL(OPEN_METEO);
+  url.searchParams.set("latitude",       PLANT.lat);
+  url.searchParams.set("longitude",      PLANT.lon);
+  url.searchParams.set("hourly",         VARS);
+  url.searchParams.set("models",         modelKey);
+  url.searchParams.set("forecast_days",  2);
+  url.searchParams.set("timezone",       PLANT.tz);
+  url.searchParams.set("tilt",           PLANT.tilt);
+  url.searchParams.set("azimuth",        PLANT.azimuth);
+  url.searchParams.set("timeformat",     "iso8601");
+  url.searchParams.set("wind_speed_unit","ms");
+  // 20-second timeout — prevents infinite spinner on slow/unresponsive API
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+    if (!r.ok) throw new Error(`${modelKey}: HTTP ${r.status}`);
+    return r.json();
+  } catch(e) {
+    clearTimeout(tid);
+    if (e.name === 'AbortError') throw new Error(`${modelKey}: request timed out (20s)`);
+    throw e;
+  }
+}
+
+function interp15(times, values) {
+  const tOut = [], vOut = [];
+  for (let i = 0; i < times.length - 1; i++) {
+    const t0 = new Date(times[i]).getTime(), t1 = new Date(times[i+1]).getTime();
+    const v0 = values[i] ?? 0, v1 = values[i+1] ?? 0;
+    for (let s = 0; s < 4; s++) {
+      const f = s / 4;
+      tOut.push(new Date(t0 + (t1-t0)*f));
+      vOut.push(Math.max(v0 + (v1-v0)*f, 0));
+    }
+  }
+  tOut.push(new Date(times[times.length-1]));
+  vOut.push(Math.max(values[values.length-1] ?? 0, 0));
+  return { times: tOut, values: vOut };
+}
+
+function processModel(raw) {
+  const h   = raw.hourly;
+  const ghi = interp15(h.time, h.shortwave_radiation);
+  const dhi = interp15(h.time, h.diffuse_radiation);
+  const dni = interp15(h.time, h.direct_normal_irradiance);
+  const gti = interp15(h.time, h.global_tilted_irradiance);
+  const tmp = interp15(h.time, h.temperature_2m);
+  const wnd = interp15(h.time, h.windspeed_10m);
+  const cc  = interp15(h.time, h.cloudcover);
+  return ghi.times.map((dt, i) => {
+    const ghiV = ghi.values[i], dhiV = dhi.values[i], dniV = dni.values[i];
+    // Use slot midpoint (+7.5 min) for solar geometry — matches production_forecast.py
+    const poa  = ghiToPoa(ghiV, dhiV, dniV, gti.values[i], dt.getTime() + 7.5*60000);
+    return {
+      dt,
+      ghi: ghiV, dhi: dhiV, dni: dniV,
+      t_amb: tmp.values[i], wind: wnd.values[i], cloudcover: cc.values[i],
+      poa,
+      p_ac: pvPower(poa, ghiV, dhiV, tmp.values[i], wnd.values[i]),
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// Aiolos — parse / store / retrieve
+// ═══════════════════════════════════════════════════════════════
+
+// Parse a single column of bare numbers (European decimal, one per line)
+function parseAiolosColumn(text) {
+  const vals = [];
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    // Replace European comma decimal → dot, then parse
+    const num = parseFloat(line.replace(',', '.'));
+    if (isNaN(num)) continue;   // skip non-numeric lines (e.g. accidental header)
+    vals.push(num);
+  }
+  return vals;
+}
+
+// Build aiolosData from two separate lists + a date string "YYYY-MM-DD"
+function parseAiolosFormat(powerText, ghiText, dateStr) {
+  const powerVals = parseAiolosColumn(powerText);
+  const ghiVals   = parseAiolosColumn(ghiText);
+
+  // Use whichever list is shorter to avoid out-of-bounds; warn in console
+  const n = Math.min(powerVals.length, ghiVals.length);
+  if (n === 0) return [];
+
+  // Midnight of the selected date in local time (Budapest)
+  // We construct the Date from the date string so it's interpreted as local
+  const [yr, mo, dy] = dateStr.split('-').map(Number);
+  const midnight = new Date(yr, mo - 1, dy, 0, 0, 0, 0);
+
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const dt  = new Date(midnight.getTime() + i * 15 * 60 * 1000);
+    const pac = Math.min(Math.max(powerVals[i], 0), PLANT.ac_mw);
+    const ghi = Math.max(ghiVals[i], 0);
+    rows.push({ dt, ghi, p_ac: pac });
+  }
+  return rows;
+}
+
+function saveAiolosToStorage(data) {
+  try { localStorage.setItem('aiolos_data', JSON.stringify(data.map(r => ({dt: r.dt.toISOString(), ghi: r.ghi, p_ac: r.p_ac})))); } catch(e) {}
+}
+function loadAiolosFromStorage() {
+  try {
+    const raw = localStorage.getItem('aiolos_data');
+    if (!raw) return [];
+    const rows = JSON.parse(raw);
+    if (!rows.length) return [];
+    // Yeni format: {dt, ghi, p_ac}
+    if (rows[0].p_ac !== undefined) {
+      return rows.map(r => ({dt: new Date(r.dt), ghi: r.ghi || 0, p_ac: r.p_ac}));
+    }
+    // Eski format (mw) — at
+    return [];
+  } catch(e) { return []; }
+}
+
+function updateAiolosStatus() {
+  const n  = aiolosData.length;
+  const el = document.getElementById('aiolos-status');
+  const dot = document.getElementById('dot-aiolos');
+  if (n === 0) {
+    el.textContent = 'No data loaded';
+    dot.style.opacity = '.3';
+    document.getElementById('aiolos-badge-nwp').textContent = 'Aiolos: no data';
+    document.getElementById('aiolos-badge-ghi').textContent = 'Aiolos: no data';
+  } else {
+    const from = aiolosData[0].dt.toLocaleDateString('en-GB', {day:'2-digit',month:'short'}) + ' '
+               + aiolosData[0].dt.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
+    const to   = aiolosData[aiolosData.length-1].dt.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
+    el.innerHTML = `<strong style="color:var(--aiolos)">${n} intervals</strong> &nbsp;(${from} → ${to})`;
+    dot.style.opacity = '1';
+    document.getElementById('aiolos-badge-nwp').textContent = `Aiolos: ${n} intervals`;
+    document.getElementById('aiolos-badge-ghi').textContent = `Aiolos: ${n} intervals`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Aiolos Modal
+// ═══════════════════════════════════════════════════════════════
+
+// Format a JS number as European decimal string (comma separator, N decimal places)
+function toEU(num, dec) {
+  return num.toFixed(dec).replace('.', ',');
+}
+
+function openAiolosModal() {
+  // Set default date to today if not already set
+  const dateEl = document.getElementById('aiolos-date');
+  if (!dateEl.value) {
+    const now = new Date();
+    dateEl.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  }
+  // Re-populate textareas if data is already loaded
+  if (aiolosData.length > 0) {
+    document.getElementById('aiolos-power-ta').value = aiolosData.map(r => toEU(r.p_ac, 3)).join('\n');
+    document.getElementById('aiolos-ghi-ta').value   = aiolosData.map(r => toEU(r.ghi,  1)).join('\n');
+    // Also restore date from first data point
+    const d = aiolosData[0].dt;
+    dateEl.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  document.getElementById('aiolos-parse-result').textContent = '';
+  document.getElementById('aiolos-modal').classList.add('open');
+}
+
+function closeAiolosModal() {
+  document.getElementById('aiolos-modal').classList.remove('open');
+}
+
+function parseAndSaveAiolos() {
+  const dateStr  = document.getElementById('aiolos-date').value;
+  const powerTxt = document.getElementById('aiolos-power-ta').value;
+  const ghiTxt   = document.getElementById('aiolos-ghi-ta').value;
+  const resEl    = document.getElementById('aiolos-parse-result');
+
+  if (!dateStr) {
+    resEl.innerHTML = '<span style="color:var(--danger)">⚠ Please select a forecast date first.</span>';
+    return;
+  }
+
+  const parsed = parseAiolosFormat(powerTxt, ghiTxt, dateStr);
+
+  if (parsed.length === 0) {
+    resEl.innerHTML = '<span style="color:var(--danger)">⚠ No valid values found. Paste 192 numbers per column (comma as decimal separator).</span>';
+    return;
+  }
+
+  const nPow = parseAiolosColumn(powerTxt).length;
+  const nGhi = parseAiolosColumn(ghiTxt).length;
+  const warnCount = (nPow !== 192 || nGhi !== 192)
+    ? ` <span style="color:var(--accent)">[Power: ${nPow}, GHI: ${nGhi} — expected 192]</span>` : '';
+  const warnMismatch = (nPow !== nGhi)
+    ? ` <span style="color:var(--accent)">(columns differ — using first ${parsed.length})</span>` : '';
+
+  aiolosData = parsed;
+  saveAiolosToStorage(aiolosData);
+  const [yr,mo,dy] = dateStr.split('-').map(Number);
+  const tPlus1 = new Date(yr, mo-1, dy+1);
+  const t1Str  = `${tPlus1.getFullYear()}-${String(tPlus1.getMonth()+1).padStart(2,'0')}-${String(tPlus1.getDate()).padStart(2,'0')}`;
+  resEl.innerHTML = `<span style="color:var(--good)">✓ ${parsed.length} intervals loaded — T: ${dateStr} · T+1: ${t1Str}</span>${warnCount}${warnMismatch}`;
+  updateAiolosStatus();
+  redrawAll();
+  setTimeout(closeAiolosModal, 1000);
+}
+
+function clearAiolos() {
+  aiolosData = [];
+  localStorage.removeItem('aiolos_data');
+  document.getElementById('aiolos-power-ta').value = '';
+  document.getElementById('aiolos-ghi-ta').value   = '';
+  document.getElementById('aiolos-parse-result').textContent = '';
+  updateAiolosStatus();
+  redrawAll();
+}
+
+function loadAiolosTemplate() {
+  // Generate 192 values — 96 for T + 96 for T+1
+  const now  = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const powRows = [], ghiRows = [];
+  for (let i = 0; i < 192; i++) {
+    const dt  = new Date(base.getTime() + i * 15 * 60000);
+    const h   = dt.getHours() + dt.getMinutes() / 60;
+    // Bell curve centred at 13:00 Budapest solar noon
+    const ghi = Math.max(800 * Math.exp(-0.5 * ((h - 13) / 3.5) ** 2), 0);
+    const pac = Math.min((ghi / 1000) * PLANT.total_area_m2 * PLANT.module_eta * PLANT.pr_fixed, PLANT.ac_mw);
+    powRows.push(toEU(pac, 3));
+    ghiRows.push(toEU(ghi, 1));
+  }
+  document.getElementById('aiolos-power-ta').value = powRows.join('\n');
+  document.getElementById('aiolos-ghi-ta').value   = ghiRows.join('\n');
+  document.getElementById('aiolos-parse-result').innerHTML =
+    '<span style="color:var(--sub)">Template loaded (192 intervals: T + T+1) — paste your Aiolos values then click Apply</span>';
+}
+
+// Close on overlay click
+document.getElementById('aiolos-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeAiolosModal();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// DA Market Nomination — parse / store / retrieve
+// ═══════════════════════════════════════════════════════════════
+
+function parseDamFormat(text, dateStr) {
+  const vals = [];
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const num = parseFloat(line.replace(',', '.'));
+    if (!isNaN(num)) vals.push(num);
+  }
+  if (vals.length === 0) return [];
+  const [yr, mo, dy] = dateStr.split('-').map(Number);
+  const midnight = new Date(yr, mo - 1, dy, 0, 0, 0, 0);
+  return vals.map(function(mw, i) {
+    return {
+      dt:  new Date(midnight.getTime() + i * 15 * 60 * 1000),
+      mw: Math.min(Math.max(mw, 0), PLANT.ac_mw),
+    };
+  });
+}
+
+function saveDamToStorage(data) {
+  try { localStorage.setItem('dam_data', JSON.stringify(data.map(r => ({dt: r.dt.toISOString(), mw: r.mw})))); } catch(e) {}
+}
+function loadDamFromStorage() {
+  try {
+    const raw = localStorage.getItem('dam_data');
+    if (!raw) return [];
+    const rows = JSON.parse(raw);
+    if (!rows.length || rows[0].mw === undefined) return []; // discard old mwh-format
+    return rows.map(r => ({dt: new Date(r.dt), mw: r.mw}));
+  } catch(e) { return []; }
+}
+
+function updateDamStatus() {
+  const n = damData.length;
+  const dot = document.getElementById('dot-dam');
+  const el  = document.getElementById('dam-status');
+  if (!dot || !el) return;
+  if (n === 0) {
+    el.textContent = 'No nominations loaded';
+    dot.style.opacity = '.3';
+  } else {
+    const total = damData.reduce(function(s, r){ return s + r.mw * 0.25; }, 0);
+    const from  = damData[0].dt.toLocaleDateString('en-GB', {day:'2-digit',month:'short'});
+    el.innerHTML = `<strong style="color:var(--dam)">${n} slots · ${total.toFixed(1)} MWh total</strong> &nbsp;(${from} · max ${Math.max(...damData.map(r=>r.mw)).toFixed(1)} MW)`;
+    dot.style.opacity = '1';
+  }
+}
+
+function openDamModal() {
+  const dateEl = document.getElementById('dam-date');
+  if (!dateEl.value) {
+    const now = new Date();
+    dateEl.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  }
+  if (damData.length > 0) {
+    document.getElementById('dam-ta').value = damData.map(r => toEU(r.mw, 3)).join('\n');
+    const d = damData[0].dt;
+    dateEl.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  document.getElementById('dam-parse-result').textContent = '';
+  document.getElementById('dam-modal').classList.add('open');
+}
+
+function closeDamModal() {
+  document.getElementById('dam-modal').classList.remove('open');
+}
+
+function parseAndSaveDam() {
+  const dateStr = document.getElementById('dam-date').value;
+  const txt     = document.getElementById('dam-ta').value;
+  const resEl   = document.getElementById('dam-parse-result');
+  if (!dateStr) {
+    resEl.innerHTML = '<span style="color:var(--danger)">⚠ Please select a date first.</span>';
+    return;
+  }
+  const parsed = parseDamFormat(txt, dateStr);
+  if (parsed.length === 0) {
+    resEl.innerHTML = '<span style="color:var(--danger)">⚠ No valid values found. Paste 192 numbers (comma as decimal separator).</span>';
+    return;
+  }
+  const warnCount = parsed.length !== 192
+    ? ` <span style="color:var(--accent)">[${parsed.length} values — expected 192]</span>` : '';
+  damData = parsed;
+  saveDamToStorage(damData);
+  const [yr,mo,dy] = dateStr.split('-').map(Number);
+  const tPlus1 = new Date(yr, mo-1, dy+1);
+  const t1Str  = `${tPlus1.getFullYear()}-${String(tPlus1.getMonth()+1).padStart(2,'0')}-${String(tPlus1.getDate()).padStart(2,'0')}`;
+  const totalMwh = damData.reduce(function(s,r){ return s+r.mw*0.25; }, 0);
+  resEl.innerHTML = `<span style="color:var(--good)">✓ ${parsed.length} slots · ${totalMwh.toFixed(1)} MWh total (max ${Math.max(...parsed.map(r=>r.mw)).toFixed(1)} MW) — T: ${dateStr} · T+1: ${t1Str}</span>${warnCount}`;
+  updateDamStatus();
+  redrawAll();
+  setTimeout(closeDamModal, 1000);
+}
+
+function clearDam() {
+  damData = [];
+  localStorage.removeItem('dam_data');
+  document.getElementById('dam-ta').value = '';
+  document.getElementById('dam-parse-result').textContent = '';
+  updateDamStatus();
+  redrawAll();
+}
+
+function loadDamTemplate() {
+  const now  = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const rows = [];
+  for (let i = 0; i < 192; i++) {
+    const dt  = new Date(base.getTime() + i * 15 * 60000);
+    const h   = dt.getHours() + dt.getMinutes() / 60;
+    // Bell curve → MW (average power per slot, directly)
+    const pac = Math.min(PLANT.ac_mw * Math.max(Math.exp(-0.5 * ((h - 13) / 3.5) ** 2), 0), PLANT.ac_mw);
+    rows.push(toEU(pac, 3));           // MW directly
+  }
+  document.getElementById('dam-ta').value = rows.join('\n');
+  document.getElementById('dam-parse-result').innerHTML =
+    '<span style="color:var(--sub)">Template loaded (192 slots: T + T+1) — replace with your nominations then click Apply</span>';
+}
+
+// Close DA modal on overlay click
+document.getElementById('dam-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeDamModal();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Chart helpers
+// ═══════════════════════════════════════════════════════════════
+let charts = {};
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function fmtTime(dt) { return dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+function fmtDate(dt) { return dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); }
+function fmtDT(dt)   { return `${fmtDate(dt)} ${fmtTime(dt)}`; }
+
+const BASE = {
+  responsive: true, maintainAspectRatio: false,
+  animation: { duration: 300 },
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      backgroundColor:'#1c2128', borderColor:'#30363d', borderWidth:1,
+      titleColor:'#e6edf3', bodyColor:'#8b949e',
+      // Sort tooltip items descending by value (highest model on top)
+      itemSort: (a, b) => (b.raw ?? -Infinity) - (a.raw ?? -Infinity),
+      filter: item => item.raw !== null && item.raw !== undefined,
+    }
+  },
+  scales: {
+    x: { ticks:{color:'#8b949e',maxTicksLimit:12,font:{size:10}}, grid:{color:'#21262d'} },
+    y: { ticks:{color:'#8b949e',font:{size:10}}, grid:{color:'#21262d'} }
+  }
+};
+
+function makeChart(id, datasets, labels, yOpts) {
+  destroyChart(id);
+  charts[id] = new Chart(document.getElementById(`chart-${id}`), {
+    type: 'line',
+    data: { labels, datasets },
+    options: { ...BASE, scales: { ...BASE.scales, y: { ...BASE.scales.y, ...yOpts } } }
+  });
+}
+
+function ds(label, data, color, opts) {
+  opts = opts || {};
+  return {
+    label, data,
+    borderColor: color, backgroundColor: color + '18',
+    borderWidth: opts.width || 1.5, pointRadius: opts.pts || 0,
+    fill: opts.fill || false, tension: opts.tension || 0.3,
+    borderDash: opts.dash || [],
+    hidden: opts.hidden || false,
+  };
+}
+
+// ── 1. NWP Power Forecast ──────────────────────────────────────────────
+function drawPowerChart() {
+  if (!modelData.ecmwf) return;
+  document.getElementById('chart-power').style.display = 'block';
+  document.getElementById('loading-power').style.display = 'none';
+  var v = VIS.power;
+  var labels = modelData.ecmwf.map(function(r){ return fmtDate(r.dt)+' '+fmtTime(r.dt); });
+  // ── Temel NWP datasetleri ──
+  var datasets = [
+    ds('ECMWF HRES', modelData.ecmwf.map(function(r){ return +r.p_ac.toFixed(2); }),  '#2196F3', {hidden:!v.ecmwf}),
+    ds('ICON-EU',    modelData.icon.map(function(r){  return +r.p_ac.toFixed(2); }),   '#4CAF50', {hidden:!v.icon}),
+    ds('ARPEGE',     modelData.arpege.map(function(r){ return +r.p_ac.toFixed(2); }),  '#FF9800', {hidden:!v.arpege}),
+  ];
+  // ── Ensemble ──
+  datasets.push(ds('Ensemble', modelData.ensemble.map(function(r){ return +r.p_ac.toFixed(2); }), '#e040fb', {width:2.5,fill:true,hidden:!v.ensemble}));
+  // ── Aiolos ──
+  if (aiolosData.length > 0) {
+    var aMap = new Map(aiolosData.map(function(r){ return [r.dt.getTime(), r.p_ac]; }));
+    datasets.push(ds('Aiolos', modelData.ecmwf.map(function(r){
+      var val = aMap.get(r.dt.getTime()); return val !== undefined ? +val.toFixed(2) : null;
+    }), '#f06292', {width:2, dash:[6,3], hidden:!v.aiolos}));
+  }
+  // ── DA Nomination ──
+  if (damData.length > 0) {
+    var dMap = new Map(damData.map(function(r){ return [r.dt.getTime(), r.mw]; }));
+    datasets.push(ds('DA Nomination', modelData.ecmwf.map(function(r){
+      var val = dMap.get(r.dt.getTime()); return val !== undefined ? +val.toFixed(2) : null;
+    }), '#fdd835', {width:2.5, dash:[4,4], hidden:!v.dam}));
+  }
+  makeChart('power', datasets, labels, {min:0, max:PLANT.ac_mw+2,
+    title:{display:true,text:'AC Power (MW)',color:'#8b949e',font:{size:10}}});
+}
+
+// ── 2. GHI Model Comparison ──────────────────────────────────────────
+function drawGHI() {
+  if (!modelData.ecmwf) return;
+  var v = VIS.ghi;
+  var labels = modelData.ecmwf.map(function(r){ return fmtTime(r.dt); });
+  var datasets = [
+    ds('ECMWF',   modelData.ecmwf.map(function(r){  return +r.ghi.toFixed(0); }), '#2196F3', {hidden:!v.ecmwf}),
+    ds('ICON-EU', modelData.icon.map(function(r){   return +r.ghi.toFixed(0); }), '#4CAF50', {hidden:!v.icon}),
+    ds('ARPEGE',  modelData.arpege.map(function(r){ return +r.ghi.toFixed(0); }), '#FF9800', {hidden:!v.arpege}),
+  ];
+  // ── Aiolos ──
+  if (aiolosData.length > 0) {
+    var aMap = new Map(aiolosData.map(function(r){ return [r.dt.getTime(), r.ghi]; }));
+    datasets.push(ds('Aiolos', modelData.ecmwf.map(function(r){
+      var val = aMap.get(r.dt.getTime()); return val !== undefined ? +val.toFixed(0) : null;
+    }), '#f06292', {width:2, dash:[6,3], hidden:!v.aiolos}));
+  }
+  makeChart('ghi', datasets, labels, {min:0, title:{display:true,text:'GHI (W/m2)',color:'#8b949e',font:{size:10}}});
+}
+
+// ── 3b. Temperature & Wind ────────────────────────────────────────────
+function drawMeteo() {
+  if (!modelData.icon) return;
+  var labels = modelData.icon.map(function(r){ return fmtTime(r.dt); });
+  destroyChart('meteo');
+  charts['meteo'] = new Chart(document.getElementById('chart-meteo'), {
+    type: 'line',
+    data: { labels: labels, datasets: [
+      {label:'Temp (C)', data:modelData.icon.map(function(r){ return +r.t_amb.toFixed(1); }),
+       borderColor:'#ff7043', backgroundColor:'#ff704318', borderWidth:1.5,
+       pointRadius:0, fill:true, tension:0.4, yAxisID:'y'},
+      {label:'Wind (m/s)', data:modelData.icon.map(function(r){ return +r.wind.toFixed(1); }),
+       borderColor:'#42a5f5', borderWidth:1.5, pointRadius:0, fill:false, tension:0.3, yAxisID:'y2'},
+    ]},
+    options: { ...BASE, scales: {
+      x: BASE.scales.x,
+      y:  {position:'left',  ticks:{color:'#8b949e',font:{size:10}}, title:{display:true,text:'C', color:'#ff7043',font:{size:10}}},
+      y2: {position:'right', ticks:{color:'#8b949e',font:{size:10}}, title:{display:true,text:'m/s',color:'#42a5f5',font:{size:10}}, grid:{drawOnChartArea:false}},
+    }}
+  });
+}
+
+// ── 3. HUPX Table ────────────────────────────────────────────────────
+function fillTable() {
+  var tbody = document.getElementById('hupx-tbody');
+  var ens = modelData.ensemble;
+  if (!ens) return;
+  var aioMap   = new Map(aiolosData.map(function(r){ return [r.dt.getTime(), r]; }));
+  var damMap = new Map(damData.map(function(r){ return [r.dt.getTime(), r]; }));
+  var rows = [];
+
+  ens.forEach(function(r, i) {
+    var ts = r.dt.getTime();
+    var aioRow = aioMap.get(ts), damRow = damMap.get(ts);
+    var ec = modelData.ecmwf  && modelData.ecmwf[i];
+    var ic = modelData.icon   && modelData.icon[i];
+    var ar = modelData.arpege && modelData.arpege[i];
+    var aioPAC = aioRow ? aioRow.p_ac : null;
+    var damMW  = damRow ? damRow.mw   : null;
+    var bestPAC = aioPAC !== null ? aioPAC : r.p_ac;
+    var pct    = Math.min(bestPAC / PLANT.ac_mw * 100, 100);
+    var barCol = bestPAC > 35 ? '#3fb950' : bestPAC > 15 ? '#f0b429' : '#6e7681';
+    var aioCell = aioPAC !== null
+      ? '<td class="aiolos-val">'+aioPAC.toFixed(2)+'</td>'
+      : '<td style="color:var(--sub)">&#8212;</td>';
+    var damCell = damMW !== null
+      ? '<td class="dam-val">'+damMW.toFixed(2)+'</td>'
+      : '<td style="color:var(--sub)">&#8212;</td>';
+    rows.push('<tr>'+
+      '<td>'+fmtDT(r.dt)+'</td>'+
+      '<td>'+(ec?ec.p_ac.toFixed(2):'&#8212;')+'</td>'+
+      '<td>'+(ic?ic.p_ac.toFixed(2):'&#8212;')+'</td>'+
+      '<td>'+(ar?ar.p_ac.toFixed(2):'&#8212;')+'</td>'+
+      '<td>'+r.p_ac.toFixed(2)+'</td>'+
+      aioCell+damCell+
+      '<td class="bar-cell"><div class="bar-bg"></div>'+
+      '<div class="bar-fill" style="width:'+pct+'%;background:'+barCol+'"></div>'+
+      '<span class="bar-text">&nbsp;'+bestPAC.toFixed(1)+'</span></td></tr>');
+  });
+  tbody.innerHTML = rows.join('');
+}
+
+// ── KPIs ─────────────────────────────────────────────────────────────
+function updateKPIs() {
+  var ens = modelData.ensemble; if (!ens) return;
+  var now = new Date();
+  var todayStr = now.toDateString(), tmrwStr = new Date(now.getTime()+86400000).toDateString();
+  var today = ens.filter(function(r){ return r.dt.toDateString()===todayStr; });
+  var tmrw  = ens.filter(function(r){ return r.dt.toDateString()===tmrwStr;  });
+  var mwh = function(arr){ return arr.reduce(function(s,r){ return s+r.p_ac*0.25; },0); };
+  var pk  = function(arr){ return arr.reduce(function(m,r){ return Math.max(m,r.p_ac); },0); };
+  document.getElementById('kpi-today-mwh').textContent    = mwh(today).toFixed(0);
+  document.getElementById('kpi-tomorrow-mwh').textContent  = mwh(tmrw).toFixed(0);
+  document.getElementById('kpi-peak').textContent          = pk(today).toFixed(1);
+  if (aiolosData.length > 0) {
+    var aToday = aiolosData.filter(function(r){ return r.dt.toDateString()===todayStr; });
+    var aTmrw  = aiolosData.filter(function(r){ return r.dt.toDateString()===tmrwStr;  });
+    document.getElementById('kpi-today-aiolos').textContent    = aToday.length ? mwh(aToday).toFixed(0) : '—';
+    document.getElementById('kpi-tomorrow-aiolos').textContent = aTmrw.length  ? mwh(aTmrw).toFixed(0)  : '—';
+  } else {
+    document.getElementById('kpi-today-aiolos').textContent    = '—';
+    document.getElementById('kpi-tomorrow-aiolos').textContent = '—';
+  }
+  if (damData.length > 0) {
+    var sumMwh  = function(arr){ return arr.reduce(function(s,r){ return s + r.mw * 0.25; }, 0); };
+    var dToday  = damData.filter(function(r){ return r.dt.toDateString()===todayStr; });
+    var dTmrw   = damData.filter(function(r){ return r.dt.toDateString()===tmrwStr;  });
+    document.getElementById('kpi-today-dam').textContent    = dToday.length ? sumMwh(dToday).toFixed(0) : '—';
+    document.getElementById('kpi-tomorrow-dam').textContent = dTmrw.length  ? sumMwh(dTmrw).toFixed(0)  : '—';
+  } else {
+    document.getElementById('kpi-today-dam').textContent    = '—';
+    document.getElementById('kpi-tomorrow-dam').textContent = '—';
+  }
+}
+
+// ── Redraw all (no API call) ──────────────────────────────────────────
+function redrawAll() {
+  drawPowerChart(); drawGHI(); drawMeteo(); fillTable(); updateKPIs();
+}
+
+// ── NWP refresh (every 60 min) ────────────────────────────────────────
+async function refreshNWP() {
+  setDot('nwp','loading');
+  document.getElementById('nwp-last').textContent = 'fetching...';
+  try {
+    var results = await Promise.all([
+      fetchNWP(MODELS.ecmwf.key), fetchNWP(MODELS.icon.key), fetchNWP(MODELS.arpege.key)
+    ]);
+    modelData.ecmwf  = processModel(results[0]);
+    modelData.icon   = processModel(results[1]);
+    modelData.arpege = processModel(results[2]);
+    // Weighted ensemble: 50% ECMWF · 35% ICON-EU · 15% ARPEGE
+    modelData.ensemble = modelData.ecmwf.map(function(r,i){
+      return Object.assign({},r,{
+        p_ac: 0.50*modelData.ecmwf[i].p_ac + 0.35*modelData.icon[i].p_ac + 0.15*modelData.arpege[i].p_ac,
+        ghi:  0.50*modelData.ecmwf[i].ghi  + 0.35*modelData.icon[i].ghi  + 0.15*modelData.arpege[i].ghi,
+      });
+    });
+    nwpLastMs = Date.now();
+    var ts = new Date(nwpLastMs).toLocaleTimeString('en-GB');
+    document.getElementById('nwp-last').textContent = ts;
+    document.getElementById('footer-ts').textContent = 'NWP last updated: '+ts;
+    document.getElementById('status-bar').textContent =
+      'NWP updated '+ts+' - ECMWF '+results[0].hourly.time.length+'h, ICON '+results[1].hourly.time.length+'h, ARPEGE '+results[2].hourly.time.length+'h';
+    setDot('nwp','ok');
+    redrawAll();         // NWP ile hemen çiz
+  } catch(err) {
+    setDot('nwp','error');
+    document.getElementById('nwp-last').textContent = 'Error';
+    document.getElementById('loading-power').innerHTML = '<div class="error-msg">NWP fetch failed: '+err.message+'</div>';
+    console.error(err);
+  }
+}
+
+// ── Dot helper ────────────────────────────────────────────────────────
+function setDot(id, state) {
+  var el = document.getElementById('dot-'+id);
+  el.style.background = state==='ok'?'var(--good)':state==='error'?'var(--danger)':state==='loading'?'var(--accent)':'var(--sub)';
+  el.className = 'refresh-dot'+(state==='ok'?' active':'');
+}
+
+// ── Countdown ─────────────────────────────────────────────────────────
+function updateCountdowns() {
+  var fmt = function(ms) {
+    if (ms<=0) return 'now'; var m=Math.floor(ms/60000), s=Math.floor((ms%60000)/1000);
+    return m+':'+(s<10?'0':'')+s;
+  };
+  if (nwpLastMs) document.getElementById('nwp-countdown').textContent = fmt(NWP_INTERVAL_MS-(Date.now()-nwpLastMs));
+}
+
+// ── Full manual refresh ───────────────────────────────────────────────
+async function loadAll() { await refreshNWP(); }
+
+// ── Clock ─────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-GB',{timeZone:'Europe/Budapest',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' Budapest';
+}
+
+
+
+// ═══════════════════════════════════════════════════════════════
+// Suggested Nomination Panel
+// ═══════════════════════════════════════════════════════════════
+function loadNominationSuggestion() {
+  var old = document.getElementById('nomination-script');
+  if (old) old.remove();
+  delete window.NOMINATION_DATA;
+  var s = document.createElement('script');
+  s.id  = 'nomination-script';
+  s.src = './nomination_data.js?' + Date.now();
+  s.onload = function() {
+    if (!window.NOMINATION_DATA) return;
+    renderNominationPanel(window.NOMINATION_DATA);
+  };
+  s.onerror = function() {}; // henüz oluşturulmadı — placeholder görünür
+  document.head.appendChild(s);
+}
+
+function renderNominationPanel(data) {
+  const noData = document.getElementById('nom-no-data');
+  const hint   = document.getElementById('nom-hint');
+  if (!data || !data.slots) { noData.style.display = 'block'; return; }
+
+  noData.style.display = 'none';
+
+  // Badge
+  document.getElementById('nom-date-badge').textContent = data.date || '—';
+
+  // Stats
+  document.getElementById('nom-daily-mwh').textContent = data.daily_mwh?.toFixed(1) ?? '—';
+  document.getElementById('nom-p50-mwh').textContent   = data.p50_mwh?.toFixed(1) ?? '—';
+  document.getElementById('nom-cons-pct').textContent  = (data.conservative_pct ?? '—') + '%';
+
+  const confEl  = document.getElementById('nom-confidence');
+  const confMap = { high: 'HIGH', medium: 'MEDIUM', low: 'LOW' };
+  const confCls = { high: 'conf-high', medium: 'conf-medium', low: 'conf-low' };
+  const conf    = data.confidence || 'medium';
+  confEl.textContent = confMap[conf] || conf.toUpperCase();
+  confEl.className   = 'nom-stat-value ' + (confCls[conf] || '');
+
+  // Hint message
+  const hintMsg = {
+    high   : '<strong>Low uncertainty day</strong> — NWP models agree well. Nomination is close to P50.',
+    medium : '<strong>Moderate uncertainty</strong> — Some model spread detected. Nomination includes an 8–12% safety haircut.',
+    low    : '<strong>High uncertainty day</strong> — Large model spread. Nomination has a 20% haircut below P50. Consider manual review.',
+  };
+  hint.innerHTML    = hintMsg[conf] || '';
+  hint.style.display = 'block';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Rolling RMSE Performance Panel
+// ═══════════════════════════════════════════════════════════════
+let rmseAllScores = [];
+let rmseChart     = null;
+let rmseWindow    = 30;
+
+function loadRmseData() {
+  var old = document.getElementById('scores-script');
+  if (old) old.remove();
+  delete window.SCORES_DATA;
+  var s = document.createElement('script');
+  s.id  = 'scores-script';
+  s.src = './scores_data.js?' + Date.now();
+  s.onload = function() {
+    if (!window.SCORES_DATA) return;
+    rmseAllScores = window.SCORES_DATA;
+    renderRmsePanel(rmseWindow);
+  };
+  s.onerror = function() {}; // henüz oluşturulmadı — placeholder görünür
+  document.head.appendChild(s);
+}
+
+function setRmseWindow(days, btn) {
+  rmseWindow = days;
+  document.querySelectorAll('.wtab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderRmsePanel(days);
+}
+
+function renderRmsePanel(days) {
+  const noData = document.getElementById('rmse-no-data');
+  const canvas = document.getElementById('chart-rmse');
+  const badge  = document.getElementById('rmse-period-badge');
+  const cards  = document.getElementById('rmse-summary-cards');
+
+  if (!rmseAllScores.length) {
+    noData.style.display = 'block'; canvas.style.display = 'none'; return;
+  }
+
+  const cutoff   = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const filtered = rmseAllScores.filter(s => s.date >= cutoff);
+
+  if (!filtered.length) {
+    noData.style.display = 'block'; canvas.style.display = 'none';
+    badge.textContent = 'no data in window'; return;
+  }
+
+  noData.style.display = 'none'; canvas.style.display = 'block';
+  badge.textContent = `${filtered[0].date} → ${filtered[filtered.length-1].date} (${filtered.length} days)`;
+
+  const labels = filtered.map(s => s.date.slice(5));   // MM-DD
+  const mCfg = [
+    { key: 'ecmwf',  name: 'ECMWF 9km',     color: '#2196F3' },
+    { key: 'aladin', name: 'ARPEGE 11km',    color: '#FF9800' },
+    { key: 'icon',   name: 'ICON-EU 6.5km',  color: '#4CAF50' },
+  ];
+
+  // Summary cards
+  cards.innerHTML = '';
+  for (const { key, name, color } of mCfg) {
+    const vals = filtered.filter(s => s[key]).map(s => s[key]);
+    if (!vals.length) continue;
+    const n    = vals.length;
+    const rmse = (vals.reduce((a, v) => a + v.rmse, 0) / n).toFixed(1);
+    const mae  = (vals.reduce((a, v) => a + v.mae,  0) / n).toFixed(1);
+    const mbe  = (vals.reduce((a, v) => a + v.mbe,  0) / n).toFixed(1);
+    const mbeStr = (parseFloat(mbe) >= 0 ? '+' : '') + mbe;
+    cards.innerHTML += `
+      <div class="rmse-card">
+        <div class="rmse-model" style="color:${color}">${name}</div>
+        <div class="rmse-metric">RMSE <span>${rmse} W/m²</span></div>
+        <div class="rmse-metric">MAE  <span>${mae} W/m²</span></div>
+        <div class="rmse-metric">MBE  <span>${mbeStr} W/m²</span></div>
+        <div class="rmse-metric">Days <span>${n}</span></div>
+      </div>`;
+  }
+
+  // Line chart
+  const datasets = mCfg.map(({ key, name, color }) => ({
+    label           : name,
+    data            : filtered.map(s => s[key]?.rmse ?? null),
+    borderColor     : color,
+    backgroundColor : color + '22',
+    borderWidth     : 1.5,
+    pointRadius     : 2,
+    tension         : 0.3,
+    spanGaps        : true,
+  }));
+
+  if (rmseChart) { rmseChart.destroy(); rmseChart = null; }
+  rmseChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#8b949e', boxWidth: 12, padding: 12 } },
+        tooltip: {
+          backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+          titleColor: '#e6edf3', bodyColor: '#8b949e',
+          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'} W/m²` }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', maxTicksLimit: 12 }, grid: { color: '#21262d' } },
+        y: {
+          ticks: { color: '#8b949e', callback: v => v + ' W/m²' },
+          grid : { color: '#21262d' },
+          title: { display: true, text: 'RMSE (W/m²)', color: '#8b949e', font: { size: 10 } }
+        }
+      }
+    }
+  });
+}
+
+// Wire up REDRAW map (must be after function definitions)
+REDRAW.power = drawPowerChart;
+REDRAW.ghi   = drawGHI;
+
+// ═══════════════════════════════════════════════════════════════
+// Boot
+// ═══════════════════════════════════════════════════════════════
+(function boot() {
+  // Restore persisted data
+  aiolosData = loadAiolosFromStorage();
+  damData    = loadDamFromStorage();
+  updateAiolosStatus();
+  updateDamStatus();
+
+  // Clock + countdown ticks
+  setInterval(updateClock, 1000); updateClock();
+  setInterval(updateCountdowns, 1000);
+
+  // NWP auto-refresh every 60 min
+  nwpTimerId = setInterval(refreshNWP, NWP_INTERVAL_MS);
+
+  // Initial load
+  loadAll();
+
+  // Performance chart (non-blocking)
+  loadRmseData();
+  loadNominationSuggestion();
+})();
+</script>
+</body>
+</html>
