@@ -529,12 +529,8 @@
 const PLANT = {
   lat: 46.89, lon: 21.09, tz: "Europe/Budapest",
   ac_mw: 49.8, tilt: 20,
-  // AZIMUT — olculen uretimden kalibre, tasarim degeri DEGIL.
-  // Tasarim 180° (tam guney) diyor; 131 gunluk sayac verisi as-built dizilerin
-  // 174° (guneyden 6° doguya) baktigini gosteriyor. Sabah-aksam asimetrisi
-  // 174°'de temiz sekilde sifirlaniyor (+0.126 → +0.015).
-  azimuth: -6,          // Open-Meteo konvansiyonu (0 = guney, negatif = dogu)
-  panel_az: 174,        // Meteorolojik (180° = guney) — Perez transpozisyonunda
+  azimuth: 0,           // Open-Meteo convention (0 = south) — used in API request
+  panel_az: 180,        // Meteorological (180° = south) — used in Perez transposition
   // ── Faiman cell temperature ──────────────────────────────
   U0: 25.0, U1: 6.84,
   // ── Module: DMEGC DM625G12RT-B66HSW N-TOPCon bifacial ───
@@ -545,25 +541,8 @@ const PLANT = {
   bifacial_rear_frac:  0.12,       // base rear irradiance fraction
   ground_albedo:       0.20,
   // ── PR chain: wiring×soiling×mismatch×inverter×trafo×avail ──
-  // 2026-08 kalibrasyonu — MKP sayac verisi, 131 gun, 5412 temiz slot.
-  // Gecmis: 0.8979 (tasarim) → 0.8531 (clear-sky) → 0.7880 (olculen isinim).
-  // GECICI: Open-Meteo ARSIV (ERA5) isinimina karsi fit edildi. ERA5'in yaz
-  // aylarinda pozitif kisa dalga sapmasi bilindigi icin bu indirimin bir kismi
-  // santral kaybi degil, reanaliz hatasi olabilir. Uretimde ECMWF/ICON TAHMIN
-  // isinimi kullaniliyor; score_power.py ile birkac hafta canli dogrulanmali.
-  pr_fixed:            0.7880,
-  // ── Sira golgelemesi (row-to-row shading) ──────────────────
-  collector_w:         2.382,      // m — modul genisligi (portre montaj)
-  row_pitch:           3.5,        // m — sira merkezleri arasi
-  iam_b0:              0.05,       // ASHRAE IAM katsayisi
+  pr_fixed:            0.8979,     // 0.98×0.97×0.98×0.975×0.993×0.995
 };
-// Turetilmis dizi geometrisi — golgesiz profil acisi siniri 32.85°
-PLANT.arr_h     = PLANT.collector_w * Math.sin(PLANT.tilt * Math.PI/180);
-PLANT.arr_horiz = PLANT.collector_w * Math.cos(PLANT.tilt * Math.PI/180);
-PLANT.arr_gap   = PLANT.row_pitch - PLANT.arr_horiz;
-PLANT.gcr       = PLANT.arr_horiz / PLANT.row_pitch;
-PLANT.shade_lim = Math.atan(PLANT.arr_h / PLANT.arr_gap) * 180/Math.PI;
-PLANT.svf_diff  = 1 - 0.5 * PLANT.gcr * (1 - Math.cos(PLANT.tilt * Math.PI/180));
 const MODELS = {
   ecmwf:  { key: "ecmwf_ifs",                  label: "ECMWF IFS HRES 9km", color: "#2196F3" },
   icon:   { key: "icon_eu",                     label: "ICON-EU 6.5km",   color: "#4CAF50" },
@@ -658,46 +637,6 @@ function perezBin(eps) {
   return 7;
 }
 
-// ── Sira golgelemesi + IAM ────────────────────────────────────
-// Santral GCR=0.64 ile siki yerlesimli. Gunes profil acisi 32.85° altina
-// dustugunde on sira arka sirayi golgeler. Ayrica yuksek gelis acilarinda
-// cam yansimasi (IAM) kaybi olusur. MKP gercek uretim verisiyle dogrulandi:
-// bu iki duzeltme acik-hava RMSE'sini 3.40 → 2.32 MW'a indirdi (%32).
-
-function profileAngle(elev_deg, solar_az_deg) {
-  if (elev_deg <= 0) return 0;
-  var cosD = Math.cos((solar_az_deg - PLANT.panel_az) * Math.PI/180);
-  // Gunes panel duzleminin >90° yaninda: siralar arasi golge olusmaz
-  if (cosD <= 1e-6) return 90;
-  return Math.atan(Math.tan(elev_deg * Math.PI/180) / cosD) * 180/Math.PI;
-}
-
-function shadedFraction(elev_deg, solar_az_deg) {
-  var ap = profileAngle(elev_deg, solar_az_deg);
-  if (ap <= 0)                 return 1;
-  if (ap >= PLANT.shade_lim)   return 0;
-  var tR = PLANT.tilt * Math.PI/180, tanAp = Math.tan(ap * Math.PI/180);
-  var shadedLen = PLANT.collector_w -
-      (PLANT.row_pitch * tanAp) / (Math.sin(tR) + Math.cos(tR) * tanAp);
-  return Math.max(0, Math.min(1, shadedLen / PLANT.collector_w));
-}
-
-function iamAshrae(aoi_deg) {
-  if (aoi_deg >= 90) return 0;
-  if (aoi_deg <= 0)  return 1;
-  var c = Math.cos(aoi_deg * Math.PI/180);
-  if (c < 1e-6) return 0;
-  return Math.max(0, Math.min(1, 1 - PLANT.iam_b0 * (1/c - 1)));
-}
-
-function aoiDegrees(elev_deg, solar_az_deg) {
-  if (elev_deg <= 0) return 90;
-  var eR = elev_deg * Math.PI/180, tR = PLANT.tilt * Math.PI/180;
-  var dR = (solar_az_deg - PLANT.panel_az) * Math.PI/180;
-  var ca = Math.sin(eR)*Math.cos(tR) + Math.cos(eR)*Math.sin(tR)*Math.cos(dR);
-  return Math.acos(Math.max(-1, Math.min(1, ca))) * 180/Math.PI;
-}
-
 function ghiToPoaPerez(ghi, dni, dhi, elev_deg, panel_tilt_deg, panel_az_deg, solar_az_deg) {
   if (ghi <= 0 || elev_deg <= 0) return 0;
 
@@ -737,21 +676,12 @@ function ghiToPoaPerez(ghi, dni, dhi, elev_deg, panel_tilt_deg, panel_az_deg, so
   const a_coef = Math.max(0, cosAoi);
   const b_coef = Math.max(Math.cos(toRad(85)), Math.sin(elevR));
 
-  // Bilesenleri ayri hesapla — golge ve IAM yalniz DIREKT bilesene uygulanir
-  var p_beam = dni * cosAoi;                                        // direkt
-  var p_circ = dhi * F1 * a_coef / Math.max(b_coef, 1e-6);        // sirkumsolar
-  var p_horz = dhi * F2 * Math.sin(tiltR);                         // ufuk parlakligi
-  var p_iso  = dhi * (1 - F1) * (1 + Math.cos(tiltR)) / 2;        // izotropik difuz
-  var p_grnd = ghi * PLANT.ground_albedo * (1 - Math.cos(tiltR)) / 2; // yer yansimasi
-
-  // Sirkumsolar gunesten gelir → direkt gibi golgelenir ve IAM'e tabidir
-  var iam   = iamAshrae(aoiDegrees(elev_deg, solar_az_deg));
-  var shade = 1 - shadedFraction(elev_deg, solar_az_deg);
-  var svf   = PLANT.svf_diff;
-
   return Math.max(0,
-    (p_beam + p_circ) * shade * iam +      // direkt + sirkumsolar
-    (p_horz + p_iso + p_grnd) * svf        // difuz bilesenler
+    dni * cosAoi +                                           // beam
+    dhi * F1 * a_coef / Math.max(b_coef, 1e-6) +           // circumsolar
+    dhi * F2 * Math.sin(tiltR) +                            // horizon brightening
+    dhi * (1 - F1) * (1 + Math.cos(tiltR)) / 2 +           // isotropic diffuse
+    ghi * PLANT.ground_albedo * (1 - Math.cos(tiltR)) / 2  // ground reflected
   );
 }
 
