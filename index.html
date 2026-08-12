@@ -742,31 +742,74 @@ async function fetchNWP(modelKey) {
   }
 }
 
-function interp15(times, values) {
+// ── Saatlik → 15-dk yeniden orneklemе ─────────────────────────
+// ZAMAN KONVANSIYONU (2026-08 SCADA dogrulamasi ile duzeltildi)
+//
+// Open-Meteo isinim degerleri ONCEKI SAATIN ORTALAMASIDIR: T etiketli deger
+// [T-1s, T] araligini temsil eder, yani ~T-30dk'daki anlik degere denk gelir.
+// Sicaklik/ruzgar ise ANLIK degerlerdir - onlara bu kaydirma UYGULANMAZ.
+//
+// Ayrica her 15-dk slot icin slotun ORTALAMASI gerekir (uzlasma/nominasyon
+// ceyrek ortalamasi uzerinden yapilir), yani slot ortasi = +7.5 dk.
+//
+// Isinim icin toplam ofset : +30 (konvansiyon) +7.5 (slot ortasi) = +37.5 dk
+// Sicaklik/ruzgar icin     : +7.5 dk
+//
+// ONCEKI HATA: kod slot BASINDAN ve kaydirmasiz orneklerdi (etkin -15 dk).
+// Sonuc, sahada olculen PoA'ya karsi:
+//     sabah  07-10h  oran 0.758   (tahmin dusuk kalir)
+//     ogleden sonra  oran 1.189   (tahmin yuksek kalir)
+// Duzeltme sonrasi her iki dilim de 0.98-1.01 bandina oturdu.
+
+function interpAt(times, values, offsetMin) {
+  // Saatlik seriyi surekli egri kabul edip istenen ofsette ornekler.
+  // Cikti: her 15-dk slotun BASLANGIC etiketi + o slotun temsili degeri.
+  const n = times.length;
+  const tms = new Array(n), vls = new Array(n);
+  for (let i = 0; i < n; i++) {
+    tms[i] = new Date(times[i]).getTime();
+    vls[i] = values[i] ?? 0;
+  }
   const tOut = [], vOut = [];
-  for (let i = 0; i < times.length - 1; i++) {
-    const t0 = new Date(times[i]).getTime(), t1 = new Date(times[i+1]).getTime();
-    const v0 = values[i] ?? 0, v1 = values[i+1] ?? 0;
+  const offMs = offsetMin * 60000;
+  for (let i = 0; i < n - 1; i++) {
     for (let s = 0; s < 4; s++) {
-      const f = s / 4;
-      tOut.push(new Date(t0 + (t1-t0)*f));
-      vOut.push(Math.max(v0 + (v1-v0)*f, 0));
+      const label  = tms[i] + s * 15 * 60000;   // slot baslangici
+      const sample = label + offMs;             // ornekleme noktasi
+      // sample hangi saatlik aralikta?
+      let k = i;
+      while (k < n - 2 && sample >= tms[k+1]) k++;
+      while (k > 0      && sample <  tms[k])   k--;
+      const span = tms[k+1] - tms[k];
+      const f    = span > 0 ? (sample - tms[k]) / span : 0;
+      const fc   = Math.max(0, Math.min(1, f));  // seri disina tasmayi kirp
+      tOut.push(new Date(label));
+      vOut.push(Math.max(vls[k] + (vls[k+1] - vls[k]) * fc, 0));
     }
   }
-  tOut.push(new Date(times[times.length-1]));
-  vOut.push(Math.max(values[values.length-1] ?? 0, 0));
+  tOut.push(new Date(tms[n-1]));
+  vOut.push(Math.max(vls[n-1], 0));
   return { times: tOut, values: vOut };
+}
+
+const OFFSET_IRRAD = 37.5;   // dk — onceki-saat ortalamasi + slot ortasi
+const OFFSET_INST  =  7.5;   // dk — yalniz slot ortasi (anlik degiskenler)
+
+function interp15(times, values) {   // geriye donuk uyumluluk
+  return interpAt(times, values, OFFSET_INST);
 }
 
 function processModel(raw) {
   const h   = raw.hourly;
-  const ghi = interp15(h.time, h.shortwave_radiation);
-  const dhi = interp15(h.time, h.diffuse_radiation);
-  const dni = interp15(h.time, h.direct_normal_irradiance);
-  const gti = interp15(h.time, h.global_tilted_irradiance);
-  const tmp = interp15(h.time, h.temperature_2m);
-  const wnd = interp15(h.time, h.windspeed_10m);
-  const cc  = interp15(h.time, h.cloudcover);
+  // Isinim: onceki-saat ortalamasi → +37.5 dk ofset
+  const ghi = interpAt(h.time, h.shortwave_radiation,       OFFSET_IRRAD);
+  const dhi = interpAt(h.time, h.diffuse_radiation,         OFFSET_IRRAD);
+  const dni = interpAt(h.time, h.direct_normal_irradiance,  OFFSET_IRRAD);
+  const gti = interpAt(h.time, h.global_tilted_irradiance,  OFFSET_IRRAD);
+  // Sicaklik/ruzgar/bulut: anlik degerler → yalniz slot ortasi
+  const tmp = interpAt(h.time, h.temperature_2m,            OFFSET_INST);
+  const wnd = interpAt(h.time, h.windspeed_10m,             OFFSET_INST);
+  const cc  = interpAt(h.time, h.cloudcover,                OFFSET_INST);
   return ghi.times.map((dt, i) => {
     const ghiV = ghi.values[i], dhiV = dhi.values[i], dniV = dni.values[i];
     // Use slot midpoint (+7.5 min) for solar geometry — matches production_forecast.py
