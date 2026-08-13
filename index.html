@@ -532,16 +532,32 @@ const PLANT = {
   azimuth: 0,           // Open-Meteo convention (0 = south) — used in API request
   panel_az: 180,        // Meteorological (180° = south) — used in Perez transposition
   // ── Faiman cell temperature ──────────────────────────────
-  U0: 25.0, U1: 6.84,
+  U0: 25.5, U1: 6.84,     // U0 kalibre: olculen hucre sicakligina RMSE 1.24 C
   // ── Module: DMEGC DM625G12RT-B66HSW N-TOPCon bifacial ───
   gamma:              -0.0029,     // Pmax temp. coefficient (/°C)
   module_eta:          0.231,      // 23.1% STC efficiency
   total_area_m2:       277586,     // 102 760 × 2.382 m × 1.134 m
   bifaciality:         0.80,       // 80% bifacial factor
-  bifacial_rear_frac:  0.12,       // base rear irradiance fraction
+  bifacial_rear_frac:  0.115,      // kalibre (varsayilan 0.120'ye cok yakin cikti)
   ground_albedo:       0.20,
-  // ── PR chain: wiring×soiling×mismatch×inverter×trafo×avail ──
-  pr_fixed:            0.8979,     // 0.98×0.97×0.98×0.975×0.993×0.995
+  // ── PR — SAHA SCADA'sindan kalibre (2026-06-01..08-12) ──
+  // Referans: SMP10 PoA pyranometreleri, Si-sensor hucre sicakligi, 166
+  // invertor guc toplami, santral kontrolorunun curtailment kanali.
+  // 73 gun / 6.902 slot; kontrolorun <%99.5 bildirdigi gunduz slotlari
+  // (gunduzun %30.3'u) kisitlanmis olarak cikarildi → 2.591 temiz slot.
+  //
+  // Sorun OLMAYANLAR (dogrulandi, degistirilmedi):
+  //   transpozisyon  GHI→PoA orani 1.016, saatlik std 0.005
+  //   termal         Faiman U0 25.5, olculen Tcell'e RMSE 1.24 C
+  //   bifacial       en iyi rear 0.115 (varsayim 0.120)
+  //
+  // Sorun PR'di. Tasarim kaybi zinciri (0.8979) uretimi ~%7 fazla veriyordu.
+  // Nominasyon sebeke noktasindan uzlasildigi icin PR_GRID kullaniliyor
+  // (invertor toplamina gore %1.04 trafo + ic tuketim kaybi dusulmus).
+  //   tasarim 0.8979 → invertor 0.8370 → SEBEKE 0.8290
+  // RMSE 1.933 MW, MBE +0.138 MW, n=2591
+  // Aylik kararlilik: 1.009 / 0.999 / 0.992 (Haz/Tem/Agu)
+  pr_fixed:            0.8290,
 };
 const MODELS = {
   ecmwf:  { key: "ecmwf_ifs",                  label: "ECMWF IFS HRES 9km", color: "#2196F3" },
