@@ -532,32 +532,72 @@ const PLANT = {
   azimuth: 0,           // Open-Meteo convention (0 = south) — used in API request
   panel_az: 180,        // Meteorological (180° = south) — used in Perez transposition
   // ── Faiman cell temperature ──────────────────────────────
-  U0: 25.5, U1: 6.84,     // U0 kalibre: olculen hucre sicakligina RMSE 1.24 C
+  U0: 25.5, U1: 6.84,     // SCADA kalibre: olculen hucre sicakligina RMSE 1.24 C
+  // ── Dusuk gunes duzeltmesi (2026-09 kalibrasyonu) ──────────
+  // Model alcak guneste sistematik olarak fazla tahmin ediyordu:
+  //   elev  0-10°  gercek/model 0.755    elev 30-40°  1.027
+  // Eksik olan iki fizik: geli� acisi kaybi (IAM) ve invertor bosta tuketimi.
+  // b0 SAF OPTIK KATSAYI DEGILDIR — IAM + sira golgelemesi (GCR 0.64) +
+  // ufuk etkisini birlikte emen efektif bir katsayidir, o yuzden AR kaplamali
+  // cam icin tipik 0.02-0.03'ten yuksek cikiyor.
+  iam_b0:              0.075,     // efektif dusuk-aci kayip katsayisi
+  p_self_mw:           0.25,      // MW — invertor bosta + ic tuketim
+  // ── Sabah pusu/cigi (yerel iklim) ──────────────────────────
+  // Ayni gunes yuksekliginde sabah ve ogleden sonra oranlari ciddi farkli:
+  //   elev  5-10°  sabah 0.763  |  ogleden sonra 1.110
+  //   elev 25-30°  sabah 0.953  |  ogleden sonra 1.083
+  // Bolgede gun dogumundan isinmaya kadar yer sisi olusuyor (saha gozlemi).
+  // Nem kismen aciklıyor (RH<%50'de oran 0.902, RH>%50'de 0.81) ama tek
+  // basina yetmiyor. SMP10 pyranometrelerin kubbe isiticisi var, ciy
+  // tutmuyorlar; paneller tutuyor — sensor temiz isinim okurken paneller
+  // islak kaliyor. Bu tam gozlenen imzayi uretir.
+  //
+  // Tekil sis olaylari NWP ile tahmin edilemez, ama sabahlarin tipik olarak
+  // puslu olmasi IKLIMSEL bir gercek ve tahmine yansimali. Asagidaki faktor
+  // ampirik bir iklim duzeltmesidir, fizik degildir.
+  //   carpan = 1 - fog * exp(-elev / tau)   (yalniz ogleden ONCE)
+  fog_morning:         0.30,      // elev→0'da %30 azaltma
+  fog_tau_deg:         18.0,      // yukseklikle sonme olcegi
+  // ── Belirsizlik bandi (2026-09, 879 temiz saat, uctan uca) ──
+  // Modeller arasi uyusmazlik gercek hatayi onguruyor. Gun-oncesi guc
+  // tahmininin olculen dogrulugu:
+  //   ECMWF 7.46 | ICON 6.28 | ARPEGE 6.67 | ENSEMBLE 6.08 MW RMSE
+  // Spread dilimine gore gercek RMSE 2.7 → 9.8 MW, yani 3.6 kat aralik.
+  // Sabit bir band sakin gunlerde cok genis, calkantili gunlerde cok dar
+  // olurdu.  sigma = a + b x spread   (disarida birakilmis veride r=+0.52)
+  sigma_a:             2.883,     // MW — spread sifirken taban belirsizlik
+  sigma_b:             0.603,     // MW / MW spread
+  // TAVAN UYARISI: uc model de 49.8 derse spread sifirlanir ama hata
+  // sifirlanmaz. Tavana yakin slotlarda tabana ek pay konur.
+  sigma_cap_extra:     1.500,     // MW — 49.8'e yakin slotlarda ek belirsizlik
+  band_z:              1.28,      // P10–P90 (%80) icin z degeri
   // ── Module: DMEGC DM625G12RT-B66HSW N-TOPCon bifacial ───
   gamma:              -0.0029,     // Pmax temp. coefficient (/°C)
   module_eta:          0.231,      // 23.1% STC efficiency
   total_area_m2:       277586,     // 102 760 × 2.382 m × 1.134 m
   bifaciality:         0.80,       // 80% bifacial factor
-  bifacial_rear_frac:  0.115,      // kalibre (varsayilan 0.120'ye cok yakin cikti)
+  bifacial_rear_frac:  0.12,       // base rear irradiance fraction
   ground_albedo:       0.20,
-  // ── PR — SAHA SCADA'sindan kalibre (2026-06-01..08-12) ──
+  // ── PR — SAHA SCADA'sindan kalibre (2026-06-01..08-12, 73 gun) ──
   // Referans: SMP10 PoA pyranometreleri, Si-sensor hucre sicakligi, 166
   // invertor guc toplami, santral kontrolorunun curtailment kanali.
-  // 73 gun / 6.902 slot; kontrolorun <%99.5 bildirdigi gunduz slotlari
-  // (gunduzun %30.3'u) kisitlanmis olarak cikarildi → 2.591 temiz slot.
+  // Kontrolorun <%99.5 bildirdigi gunduz slotlari (gunduzun %30.3'u)
+  // kisitlanmis sayilip cikarildi → 2.591 temiz slot.
   //
-  // Sorun OLMAYANLAR (dogrulandi, degistirilmedi):
-  //   transpozisyon  GHI→PoA orani 1.016, saatlik std 0.005
-  //   termal         Faiman U0 25.5, olculen Tcell'e RMSE 1.24 C
-  //   bifacial       en iyi rear 0.115 (varsayim 0.120)
+  // Sorun olmayanlar (dogrulandi): transpozisyon GHI→PoA orani 1.016,
+  // saatlik std 0.005; termal Faiman RMSE 1.24 C.
+  // Sorun PR'di: tasarim zinciri (0.8979) uretimi ~%7 fazla veriyordu.
   //
-  // Sorun PR'di. Tasarim kaybi zinciri (0.8979) uretimi ~%7 fazla veriyordu.
   // Nominasyon sebeke noktasindan uzlasildigi icin PR_GRID kullaniliyor
   // (invertor toplamina gore %1.04 trafo + ic tuketim kaybi dusulmus).
   //   tasarim 0.8979 → invertor 0.8370 → SEBEKE 0.8290
   // RMSE 1.933 MW, MBE +0.138 MW, n=2591
   // Aylik kararlilik: 1.009 / 0.999 / 0.992 (Haz/Tem/Agu)
-  pr_fixed:            0.8290,
+  // 2026-09 guncellemesi: IAM + P_self eklendi, PR yeniden fit edildi.
+  //   0.8979 tasarim → 0.8290 (duzeltmesiz) → 0.8664 (IAM+P_self ile)
+  // PR yukseldi cunku kaybin bir kismi artik ayri modelleniyor; NET etki
+  // dusuk gunes saatlerinde tahmini asagi ceker.
+  pr_fixed:            0.8814,
 };
 const MODELS = {
   ecmwf:  { key: "ecmwf_ifs",                  label: "ECMWF IFS HRES 9km", color: "#2196F3" },
@@ -653,6 +693,15 @@ function perezBin(eps) {
   return 7;
 }
 
+// ── IAM: gelis acisi kaybi ─────────────────────────────────────
+// ASHRAE formu. YALNIZ direkt + sirkumsolar bilesene uygulanir; difuz
+// bilesenin tek bir gelis acisi yoktur. Toplam PoA'ya uygulanirsa alcak
+// gunes acilarinda tahmin cokerdi (denendi, saatlik profil bozuldu).
+function iamAshrae(cosAoi, b0) {
+  if (cosAoi <= 1e-3) return 0;
+  return Math.max(0, Math.min(1, 1 - b0 * (1/cosAoi - 1)));
+}
+
 function ghiToPoaPerez(ghi, dni, dhi, elev_deg, panel_tilt_deg, panel_az_deg, solar_az_deg) {
   if (ghi <= 0 || elev_deg <= 0) return 0;
 
@@ -692,13 +741,14 @@ function ghiToPoaPerez(ghi, dni, dhi, elev_deg, panel_tilt_deg, panel_az_deg, so
   const a_coef = Math.max(0, cosAoi);
   const b_coef = Math.max(Math.cos(toRad(85)), Math.sin(elevR));
 
-  return Math.max(0,
-    dni * cosAoi +                                           // beam
-    dhi * F1 * a_coef / Math.max(b_coef, 1e-6) +           // circumsolar
-    dhi * F2 * Math.sin(tiltR) +                            // horizon brightening
-    dhi * (1 - F1) * (1 + Math.cos(tiltR)) / 2 +           // isotropic diffuse
-    ghi * PLANT.ground_albedo * (1 - Math.cos(tiltR)) / 2  // ground reflected
-  );
+  // Gunesten gelen (yonlu) bilesenler IAM'e tabidir; difuz olanlar degildir.
+  var iam    = iamAshrae(cosAoi, PLANT.iam_b0);
+  var direct = dni * cosAoi                                    // beam
+             + dhi * F1 * a_coef / Math.max(b_coef, 1e-6);   // circumsolar
+  var isotr  = dhi * F2 * Math.sin(tiltR)                      // horizon brightening
+             + dhi * (1 - F1) * (1 + Math.cos(tiltR)) / 2      // isotropic diffuse
+             + ghi * PLANT.ground_albedo * (1 - Math.cos(tiltR)) / 2;  // ground
+  return Math.max(0, direct * iam + isotr);
 }
 
 // ── GHI → POA (public entry point) ───────────────────────────
@@ -713,7 +763,7 @@ function ghiToPoa(ghi, dhi, dni, _gti, dt_ms) {
 // ── AC power (area-based + bifacial + PR) ─────────────────────
 // Signature: pvPower(poa, ghi, dhi, t_amb, wind)
 // Matches production_forecast.py physics_forecast_single()
-function pvPower(poa, ghi, dhi, t_amb, wind) {
+function pvPower(poa, ghi, dhi, t_amb, wind, dt_ms) {
   if (poa <= 0) return 0;
   // Faiman (2008) cell temperature
   const t_cell     = t_amb + poa / (PLANT.U0 + PLANT.U1 * Math.max(wind, 0.5));
@@ -723,8 +773,19 @@ function pvPower(poa, ghi, dhi, t_amb, wind) {
   const rearFrac   = PLANT.bifacial_rear_frac * (1 - 0.3 * dhiFrac);
   const poaEff     = poa + PLANT.bifaciality * (ghi || 0) * rearFrac;
   // DC → AC
-  const p_dc_mw    = (poaEff * PLANT.total_area_m2 * PLANT.module_eta * tempFactor * PLANT.pr_fixed) / 1e6;
-  return Math.min(Math.max(p_dc_mw, 0), PLANT.ac_mw);
+  let p_dc_mw      = (poaEff * PLANT.total_area_m2 * PLANT.module_eta * tempFactor * PLANT.pr_fixed) / 1e6;
+  // Sabah pusu/cigi — yalniz ogleden once, gunes yukseldikce soner
+  if (dt_ms !== undefined) {
+    const pos = solarPosition(PLANT.lat, PLANT.lon, dt_ms);
+    const localHour = new Date(dt_ms).getHours();
+    if (localHour < 12 && pos.elev > 0) {
+      p_dc_mw *= 1 - PLANT.fog_morning * Math.exp(-pos.elev / PLANT.fog_tau_deg);
+    }
+  }
+  // Invertor bosta tuketimi + ic tuketim: gucle olceklenmez, sabit dusulur.
+  // Dusuk isinimda baskin, ogleyin ihmal edilebilir.
+  const p_ac_mw    = p_dc_mw - PLANT.p_self_mw;
+  return Math.min(Math.max(p_ac_mw, 0), PLANT.ac_mw);
 }
 
 
@@ -758,28 +819,26 @@ async function fetchNWP(modelKey) {
   }
 }
 
-// ── Saatlik → 15-dk yeniden orneklemе ─────────────────────────
-// ZAMAN KONVANSIYONU (2026-08 SCADA dogrulamasi ile duzeltildi)
+// ── Saatlik → 15-dk yeniden ornekleme ─────────────────────────
+// ZAMAN KONVANSIYONU (saha PoA olcumuyle dogrulandi, 2026-08)
 //
 // Open-Meteo isinim degerleri ONCEKI SAATIN ORTALAMASIDIR: T etiketli deger
 // [T-1s, T] araligini temsil eder, yani ~T-30dk'daki anlik degere denk gelir.
-// Sicaklik/ruzgar ise ANLIK degerlerdir - onlara bu kaydirma UYGULANMAZ.
+// Sicaklik/ruzgar ise ANLIK degerlerdir — onlara bu kaydirma UYGULANMAZ.
 //
-// Ayrica her 15-dk slot icin slotun ORTALAMASI gerekir (uzlasma/nominasyon
-// ceyrek ortalamasi uzerinden yapilir), yani slot ortasi = +7.5 dk.
+// Ayrica her slot icin slotun ORTALAMASI gerekir (uzlasma ceyrek ortalamasi
+// uzerinden), yani slot ortasi = +7.5 dk.
 //
-// Isinim icin toplam ofset : +30 (konvansiyon) +7.5 (slot ortasi) = +37.5 dk
-// Sicaklik/ruzgar icin     : +7.5 dk
+//   isinim         : +30 (konvansiyon) +7.5 (slot ortasi) = +37.5 dk
+//   sicaklik/ruzgar: +7.5 dk
 //
-// ONCEKI HATA: kod slot BASINDAN ve kaydirmasiz orneklerdi (etkin -15 dk).
-// Sonuc, sahada olculen PoA'ya karsi:
-//     sabah  07-10h  oran 0.758   (tahmin dusuk kalir)
-//     ogleden sonra  oran 1.189   (tahmin yuksek kalir)
-// Duzeltme sonrasi her iki dilim de 0.98-1.01 bandina oturdu.
+// ONCEKI HATA: slot BASINDAN, kaydirmasiz ornekleme (etkin -15 dk).
+// Saha PoA'sina karsi olculen sonuc:
+//   ONCE  sabah 07-10h 0.758 | ogleden sonra 14-18h 1.189 | RMSE 114.7 W/m2
+//   SONRA sabah        0.996 | ogleden sonra        0.995 | RMSE  56.9 W/m2
+// Asimetri +0.43 → -0.001. Teorik gereken kayma L+22.5 dk, olculen L+20..25.
 
 function interpAt(times, values, offsetMin) {
-  // Saatlik seriyi surekli egri kabul edip istenen ofsette ornekler.
-  // Cikti: her 15-dk slotun BASLANGIC etiketi + o slotun temsili degeri.
   const n = times.length;
   const tms = new Array(n), vls = new Array(n);
   for (let i = 0; i < n; i++) {
@@ -792,13 +851,12 @@ function interpAt(times, values, offsetMin) {
     for (let s = 0; s < 4; s++) {
       const label  = tms[i] + s * 15 * 60000;   // slot baslangici
       const sample = label + offMs;             // ornekleme noktasi
-      // sample hangi saatlik aralikta?
       let k = i;
       while (k < n - 2 && sample >= tms[k+1]) k++;
       while (k > 0      && sample <  tms[k])   k--;
       const span = tms[k+1] - tms[k];
       const f    = span > 0 ? (sample - tms[k]) / span : 0;
-      const fc   = Math.max(0, Math.min(1, f));  // seri disina tasmayi kirp
+      const fc   = Math.max(0, Math.min(1, f));
       tOut.push(new Date(label));
       vOut.push(Math.max(vls[k] + (vls[k+1] - vls[k]) * fc, 0));
     }
@@ -835,7 +893,7 @@ function processModel(raw) {
       ghi: ghiV, dhi: dhiV, dni: dniV,
       t_amb: tmp.values[i], wind: wnd.values[i], cloudcover: cc.values[i],
       poa,
-      p_ac: pvPower(poa, ghiV, dhiV, tmp.values[i], wnd.values[i]),
+      p_ac: pvPower(poa, ghiV, dhiV, tmp.values[i], wnd.values[i], dt.getTime() + 7.5*60000),
     };
   });
 }
@@ -1216,8 +1274,32 @@ function drawPowerChart() {
     ds('ICON-EU',    modelData.icon.map(function(r){  return +r.p_ac.toFixed(2); }),   '#4CAF50', {hidden:!v.icon}),
     ds('ARPEGE',     modelData.arpege.map(function(r){ return +r.p_ac.toFixed(2); }),  '#FF9800', {hidden:!v.arpege}),
   ];
+  // ── Belirsizlik bandi (P10–P90) ────────────────────────────
+  // Modeller arasi standart sapmadan turetilir. Genis band = modeller
+  // anlasmiyor = o slotta nominasyon riski yuksek.
+  var bandLo = [], bandHi = [];
+  for (var bi = 0; bi < modelData.ensemble.length; bi++) {
+    var vals = [modelData.ecmwf[bi].p_ac, modelData.icon[bi].p_ac, modelData.arpege[bi].p_ac];
+    var mu   = (vals[0] + vals[1] + vals[2]) / 3;
+    var vr   = ((vals[0]-mu)*(vals[0]-mu) + (vals[1]-mu)*(vals[1]-mu) + (vals[2]-mu)*(vals[2]-mu)) / 2;
+    var sd   = Math.sqrt(Math.max(vr, 0));
+    var sig  = PLANT.sigma_a + PLANT.sigma_b * sd;
+    // Tavana yapisan slotlarda spread cokuyor ama hata cokmuyor
+    if (mu > PLANT.ac_mw - 2) sig += PLANT.sigma_cap_extra;
+    var e = modelData.ensemble[bi].p_ac;
+    bandLo.push(+Math.max(e - PLANT.band_z * sig, 0).toFixed(2));
+    bandHi.push(+Math.min(e + PLANT.band_z * sig, PLANT.ac_mw).toFixed(2));
+  }
+  datasets.push(ds('P90', bandHi, 'rgba(224,64,251,0.00)',
+    {width:0, hidden:!v.ensemble, pointRadius:0}));
+  var dsLo = ds('Belirsizlik (P10–P90)', bandLo, 'rgba(224,64,251,0.00)',
+    {width:0, hidden:!v.ensemble, pointRadius:0});
+  dsLo.fill = '-1';
+  dsLo.backgroundColor = 'rgba(224,64,251,0.13)';
+  datasets.push(dsLo);
+
   // ── Ensemble ──
-  datasets.push(ds('Ensemble', modelData.ensemble.map(function(r){ return +r.p_ac.toFixed(2); }), '#e040fb', {width:2.5,fill:true,hidden:!v.ensemble}));
+  datasets.push(ds('Ensemble', modelData.ensemble.map(function(r){ return +r.p_ac.toFixed(2); }), '#e040fb', {width:2.5,fill:false,hidden:!v.ensemble}));
   // ── Aiolos ──
   if (aiolosData.length > 0) {
     var aMap = new Map(aiolosData.map(function(r){ return [r.dt.getTime(), r.p_ac]; }));
