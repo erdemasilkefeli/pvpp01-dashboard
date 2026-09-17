@@ -15,6 +15,7 @@
     --ecmwf:    #2196F3;
     --icon:     #4CAF50;
     --arpege:   #FF9800;
+    --aladin:   #00BCD4;
     --ensemble: #e040fb;
     --dam:      #fdd835;
     --aiolos:   #f06292;
@@ -382,6 +383,7 @@
     <button class="leg-btn" id="vis-power-ecmwf"    onclick="toggleVis('power','ecmwf')">   <span class="leg-dot" style="background:var(--ecmwf)"></span>ECMWF HRES 9 km</button>
     <button class="leg-btn" id="vis-power-icon"     onclick="toggleVis('power','icon')">    <span class="leg-dot" style="background:var(--icon)"></span>ICON-EU 6.5 km</button>
     <button class="leg-btn" id="vis-power-arpege"   onclick="toggleVis('power','arpege')">  <span class="leg-dot" style="background:var(--arpege)"></span>ARPEGE 11 km</button>
+    <button class="leg-btn" id="vis-power-aladin"   onclick="toggleVis('power','aladin')">  <span class="leg-dot" style="background:var(--aladin)"></span>CHMI ALADIN 2.3 km</button>
 
     <button class="leg-btn" id="vis-power-ensemble" onclick="toggleVis('power','ensemble')"><span class="leg-dot" style="background:var(--ensemble)"></span>Ensemble (50/35/15%)</button>
     <button class="leg-btn" id="vis-power-aiolos"   onclick="toggleVis('power','aiolos')">  <span class="leg-dot" style="background:var(--aiolos)"></span>Aiolos</button>
@@ -405,6 +407,7 @@
       <button class="leg-btn" id="vis-ghi-ecmwf"  onclick="toggleVis('ghi','ecmwf')"> <span class="leg-dot" style="background:var(--ecmwf)"></span>ECMWF</button>
       <button class="leg-btn" id="vis-ghi-icon"   onclick="toggleVis('ghi','icon')">  <span class="leg-dot" style="background:var(--icon)"></span>ICON-EU</button>
       <button class="leg-btn" id="vis-ghi-arpege" onclick="toggleVis('ghi','arpege')"><span class="leg-dot" style="background:var(--arpege)"></span>ARPEGE</button>
+      <button class="leg-btn" id="vis-ghi-aladin" onclick="toggleVis('ghi','aladin')"><span class="leg-dot" style="background:var(--aladin)"></span>CHMI ALADIN</button>
 
       <button class="leg-btn" id="vis-ghi-aiolos" onclick="toggleVis('ghi','aiolos')"><span class="leg-dot" style="background:var(--aiolos)"></span>Aiolos</button>
     </div>
@@ -436,7 +439,8 @@
           <th>ECMWF HRES<br/><span style="font-weight:400;font-size:10px">9 km (MW)</span></th>
           <th>ICON-EU<br/><span style="font-weight:400;font-size:10px">6.5 km (MW)</span></th>
           <th>ARPEGE<br/><span style="font-weight:400;font-size:10px">11 km (MW)</span></th>
-          <th>Ensemble<br/><span style="font-weight:400;font-size:10px">NWP mean (MW)</span></th>
+          <th style="color:var(--aladin)">CHMI ALADIN<br/><span style="font-weight:400;font-size:10px;color:var(--sub)">2.3 km (MW)</span></th>
+          <th>Ensemble<br/><span style="font-weight:400;font-size:10px">weighted (MW)</span></th>
           <th style="color:var(--aiolos)">Aiolos<br/><span style="font-weight:400;font-size:10px;color:var(--sub)">(MW)</span></th>
           <th style="color:var(--dam)">DA Nom<br/><span style="font-weight:400;font-size:10px;color:var(--sub)">(MW)</span></th>
           <th style="min-width:100px">Best Estimate<br/><span style="font-weight:400;font-size:10px">Power bar (MW)</span></th>
@@ -600,10 +604,51 @@ const PLANT = {
   pr_fixed:            0.8814,
 };
 const MODELS = {
-  ecmwf:  { key: "ecmwf_ifs",                  label: "ECMWF IFS HRES 9km", color: "#2196F3" },
-  icon:   { key: "icon_eu",                     label: "ICON-EU 6.5km",   color: "#4CAF50" },
-  arpege: { key: "meteofrance_arpege_europe",   label: "ARPEGE 11km",     color: "#FF9800" },
+  ecmwf:  { key: "ecmwf_ifs",                     label: "ECMWF IFS HRES 9km", color: "#2196F3" },
+  icon:   { key: "icon_eu",                        label: "ICON-EU 6.5km",      color: "#4CAF50" },
+  arpege: { key: "meteofrance_arpege_europe",      label: "ARPEGE 11km",        color: "#FF9800" },
+  // CHMI ALADIN — Cek Hidrometeoroloji Enstitusu, 2026-09'da Open-Meteo'ya eklendi.
+  // Dortlu icinde en yuksek cozunurluk. Ayrica ALADIN direkt isinimi NATIF
+  // uretiyor (cogu bolgesel model uretmez), yani DHI gercek bir fark —
+  // ayristirma modeli devreye girmiyor. Perez transpozisyonu icin avantaj.
+  //
+  // 'central_europe_2km' secildi, 'seamless' DEGIL: seamless 3 gun sonrasini
+  // ECMWF IFS ile harmanliyor, bu da mevcut ECMWF uyemizle korelasyon yaratip
+  // ensemble bagimsizligini bozardi.
+  aladin: { key: "chmi_aladin_central_europe_2km", label: "CHMI ALADIN 2.3km",  color: "#00BCD4" },
 };
+
+// ── Ensemble agirliklari ───────────────────────────────────────
+// Onceki deger 0.50/0.35/0.15 idi ve dayanagi yoktu. 2026-09'da saha
+// pyranometresine karsi olculdu (1.053 saat, arsivlenmis TAHMIN verisi):
+//     ECMWF  RMSE 117.2 | ICON 107.5 | ARPEGE 109.6 | esit-agirlik ens 94.4
+//     optimal agirliklar 0.30/0.35/0.35 → RMSE 94.3  (%0.1 kazanc)
+//     disarida birakilmis veride optimal agirlik esit-agirliktan KOTU cikti
+// Yani agirliklandirmanin faydasi yok; esit agirlik hem en iyi hem en saglam.
+// Ensemble tek modellerden %12-19 iyi cunku modellerin sapma imzalari farkli
+// (ECMWF ogleyin fazla, ICON sabah az) ve hatalar birbirini goturuyor.
+// Bir modeli one cikarmak bu dengeyi bozar.
+//
+// ALADIN olculdu (2026-09, 1.101 saat, saha pyranometresi):
+//     ECMWF 96.5 | ICON 90.2 | ARPEGE 92.9 | ALADIN 82.6 | ensemble 75.6
+// ALADIN tek basina en iyi model. Ayni saatlerde 3-model ensemble 77.3,
+// 4-model 75.6 → eklenmesi %2.2 kazandirdi.
+//
+// AGIRLIKLAR — taramanin buldugu egitim-verisi optimumu (ALADIN cift pay).
+//
+// DIKKAT: Bu optimum, ESIT agirliktan daha iyi DEGIL.
+//     tum veri : esit 75.6  |  optimal 75.6   (fark yok)
+//     test     : esit 59.5  |  optimal 59.7   (optimal daha KOTU)
+// Agirliklandirmanin olculebilir faydasi yok ve optimum, egitim verisine
+// hafif uydurma riski tasiyor. Esit agirlik daha saglam secimdi.
+// Esite donmek icin: hepsini 0.25 yapin, baska degisiklik gerekmez.
+const ENSEMBLE_WEIGHTS = {
+  aladin: 0.40,
+  ecmwf:  0.20,
+  icon:   0.20,
+  arpege: 0.20,
+};
+const ENSEMBLE_MEMBERS = Object.keys(ENSEMBLE_WEIGHTS);
 const OPEN_METEO = "https://api.open-meteo.com/v1/forecast";
 const VARS = [
   "shortwave_radiation","diffuse_radiation","direct_normal_irradiance",
@@ -625,8 +670,8 @@ let nwpTimerId, countdownId;
 
 // ── Visibility state for interactive legend toggles ────────────
 const VIS = {
-  power: { ecmwf:true, icon:true, arpege:true, ensemble:true, aiolos:true, dam:true },
-  ghi:   { ecmwf:true, icon:true, arpege:true, aiolos:true },
+  power: { ecmwf:true, icon:true, arpege:true, aladin:true, ensemble:true, aiolos:true, dam:true },
+  ghi:   { ecmwf:true, icon:true, arpege:true, aladin:true, aiolos:true },
 };
 
 // Map chart IDs → redraw functions (filled after function definitions)
@@ -1274,15 +1319,26 @@ function drawPowerChart() {
     ds('ICON-EU',    modelData.icon.map(function(r){  return +r.p_ac.toFixed(2); }),   '#4CAF50', {hidden:!v.icon}),
     ds('ARPEGE',     modelData.arpege.map(function(r){ return +r.p_ac.toFixed(2); }),  '#FF9800', {hidden:!v.arpege}),
   ];
+  // CHMI ALADIN — 3 gunluk ufuk, bazen eksik olabilir
+  if (modelData.aladin && modelData.aladin.length) {
+    datasets.push(ds('CHMI ALADIN', modelData.aladin.map(function(r){
+      return isFinite(r.p_ac) ? +r.p_ac.toFixed(2) : null; }), '#00BCD4', {hidden:!v.aladin}));
+  }
   // ── Belirsizlik bandi (P10–P90) ────────────────────────────
   // Modeller arasi standart sapmadan turetilir. Genis band = modeller
   // anlasmiyor = o slotta nominasyon riski yuksek.
   var bandLo = [], bandHi = [];
   for (var bi = 0; bi < modelData.ensemble.length; bi++) {
-    var vals = [modelData.ecmwf[bi].p_ac, modelData.icon[bi].p_ac, modelData.arpege[bi].p_ac];
-    var mu   = (vals[0] + vals[1] + vals[2]) / 3;
-    var vr   = ((vals[0]-mu)*(vals[0]-mu) + (vals[1]-mu)*(vals[1]-mu) + (vals[2]-mu)*(vals[2]-mu)) / 2;
-    var sd   = Math.sqrt(Math.max(vr, 0));
+    // Spread mevcut TUM uyelerden hesaplanir (ALADIN dahil, varsa)
+    var vals = [];
+    ENSEMBLE_MEMBERS.forEach(function(k){
+      var row = modelData[k] && modelData[k][bi];
+      if (row && isFinite(row.p_ac)) vals.push(row.p_ac);
+    });
+    if (vals.length < 2) { bandLo.push(null); bandHi.push(null); continue; }
+    var mu = vals.reduce(function(a,b){return a+b;},0) / vals.length;
+    var vr = vals.reduce(function(a,x){return a+(x-mu)*(x-mu);},0) / (vals.length-1);
+    var sd = Math.sqrt(Math.max(vr, 0));
     var sig  = PLANT.sigma_a + PLANT.sigma_b * sd;
     // Tavana yapisan slotlarda spread cokuyor ama hata cokmuyor
     if (mu > PLANT.ac_mw - 2) sig += PLANT.sigma_cap_extra;
@@ -1328,6 +1384,10 @@ function drawGHI() {
     ds('ICON-EU', modelData.icon.map(function(r){   return +r.ghi.toFixed(0); }), '#4CAF50', {hidden:!v.icon}),
     ds('ARPEGE',  modelData.arpege.map(function(r){ return +r.ghi.toFixed(0); }), '#FF9800', {hidden:!v.arpege}),
   ];
+  if (modelData.aladin && modelData.aladin.length) {
+    datasets.push(ds('CHMI ALADIN', modelData.aladin.map(function(r){
+      return isFinite(r.ghi) ? +r.ghi.toFixed(0) : null; }), '#00BCD4', {hidden:!v.aladin}));
+  }
   // ── Aiolos ──
   if (aiolosData.length > 0) {
     var aMap = new Map(aiolosData.map(function(r){ return [r.dt.getTime(), r.ghi]; }));
@@ -1375,6 +1435,7 @@ function fillTable() {
     var ec = modelData.ecmwf  && modelData.ecmwf[i];
     var ic = modelData.icon   && modelData.icon[i];
     var ar = modelData.arpege && modelData.arpege[i];
+    var al = modelData.aladin && modelData.aladin[i];
     var aioPAC = aioRow ? aioRow.p_ac : null;
     var damMW  = damRow ? damRow.mw   : null;
     var bestPAC = aioPAC !== null ? aioPAC : r.p_ac;
@@ -1391,6 +1452,7 @@ function fillTable() {
       '<td>'+(ec?ec.p_ac.toFixed(2):'&#8212;')+'</td>'+
       '<td>'+(ic?ic.p_ac.toFixed(2):'&#8212;')+'</td>'+
       '<td>'+(ar?ar.p_ac.toFixed(2):'&#8212;')+'</td>'+
+      '<td style="color:var(--aladin)">'+(al&&isFinite(al.p_ac)?al.p_ac.toFixed(2):'&#8212;')+'</td>'+
       '<td>'+r.p_ac.toFixed(2)+'</td>'+
       aioCell+damCell+
       '<td class="bar-cell"><div class="bar-bg"></div>'+
@@ -1443,25 +1505,53 @@ async function refreshNWP() {
   setDot('nwp','loading');
   document.getElementById('nwp-last').textContent = 'fetching...';
   try {
-    var results = await Promise.all([
-      fetchNWP(MODELS.ecmwf.key), fetchNWP(MODELS.icon.key), fetchNWP(MODELS.arpege.key)
-    ]);
-    modelData.ecmwf  = processModel(results[0]);
-    modelData.icon   = processModel(results[1]);
-    modelData.arpege = processModel(results[2]);
-    // Weighted ensemble: 50% ECMWF · 35% ICON-EU · 15% ARPEGE
-    modelData.ensemble = modelData.ecmwf.map(function(r,i){
-      return Object.assign({},r,{
-        p_ac: 0.50*modelData.ecmwf[i].p_ac + 0.35*modelData.icon[i].p_ac + 0.15*modelData.arpege[i].p_ac,
-        ghi:  0.50*modelData.ecmwf[i].ghi  + 0.35*modelData.icon[i].ghi  + 0.15*modelData.arpege[i].ghi,
-      });
+    var keys = Object.keys(MODELS);
+    // Bir model cokerse digerleri devam etsin — allSettled
+    var settled = await Promise.allSettled(keys.map(function(k){ return fetchNWP(MODELS[k].key); }));
+    var ok = [];
+    settled.forEach(function(r, i){
+      if (r.status === 'fulfilled') {
+        try { modelData[keys[i]] = processModel(r.value); ok.push(keys[i]); }
+        catch(e) { console.warn('[NWP] ' + keys[i] + ' islenemedi:', e); modelData[keys[i]] = null; }
+      } else {
+        console.warn('[NWP] ' + keys[i] + ' alinamadi:', r.reason);
+        modelData[keys[i]] = null;
+      }
     });
+    if (!ok.length) throw new Error('hicbir NWP modeli alinamadi');
+
+    // ── Esit agirlikli ensemble ──────────────────────────────
+    // ALADIN yalnizca 3 gunluk ufuk veriyor; ufkun otesinde null/0 donebilir.
+    // Bu slotlari ortalamaya katmak ensemble'i asagi cekerdi, o yuzden slot
+    // basina yalnizca GECERLI uyeler ortalanir.
+    var members = ENSEMBLE_MEMBERS.filter(function(k){ return modelData[k] && modelData[k].length; });
+    var base = modelData[ok[0]];
+    modelData.ensemble = base.map(function(r, i){
+      // Eksik uye olursa kalan agirliklar yeniden normalize edilir, boylece
+      // toplam her zaman 1 olur ve ensemble asagi cekilmez.
+      var sp = 0, sg = 0, wsum = 0;
+      members.forEach(function(k){
+        var row = modelData[k][i];
+        if (!row) return;
+        if (row.ghi === null || row.ghi === undefined || !isFinite(row.p_ac)) return;
+        // Ufkun otesi: gunduz olmasina ragmen GHI tam sifir → veri yok say
+        if (row.ghi === 0 && r.ghi > 5) return;
+        var w = ENSEMBLE_WEIGHTS[k] || 0;
+        sp += w * row.p_ac; sg += w * row.ghi; wsum += w;
+      });
+      if (wsum <= 0) return Object.assign({}, r);
+      return Object.assign({}, r, { p_ac: sp/wsum, ghi: sg/wsum });
+    });
+    var results = settled.map(function(r){ return r.value; });
     nwpLastMs = Date.now();
     var ts = new Date(nwpLastMs).toLocaleTimeString('en-GB');
     document.getElementById('nwp-last').textContent = ts;
     document.getElementById('footer-ts').textContent = 'NWP last updated: '+ts;
     document.getElementById('status-bar').textContent =
-      'NWP updated '+ts+' - ECMWF '+results[0].hourly.time.length+'h, ICON '+results[1].hourly.time.length+'h, ARPEGE '+results[2].hourly.time.length+'h';
+      'NWP updated '+ts+' - ' + ok.map(function(k){
+        return MODELS[k].label.split(' ')[0] + ' ' + modelData[k].length + ' slot';
+      }).join(', ') + (ok.length < Object.keys(MODELS).length
+        ? '  (' + (Object.keys(MODELS).length - ok.length) + ' model alinamadi)' : '');
     setDot('nwp','ok');
     redrawAll();         // NWP ile hemen çiz
   } catch(err) {
