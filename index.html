@@ -456,7 +456,16 @@ const PLANT = {
   lat: 46.89, lon: 21.09, tz: "Europe/Budapest",
   ac_mw: 49.8, tilt: 20,
   azimuth: 0,           // Open-Meteo convention (0 = south) — used in API request
-  panel_az: 180,        // Meteorological (180° = south) — used in Perez transposition
+  // EFEKTIF azimut (180 = guney). 2026-09-28: 185 (5° bati). Sebep: ayni gunes
+  // yuksekliginde sabah uretimi modelin %10-15 altinda, ogleden sonra ~%4
+  // ustundeydi; etki gun dogumundan 3-4 saat suruyor ve KURU sabahlarda da
+  // (ciy noktasi farki >10 C) ayni → pus/ciy degil, geometrik/sistematik.
+  // 185° bu asimetriyi tek parametreyle kaldiriyor (Haz-Tem fit, Agu-Eyl test
+  // RMSE 0.954 → 0.796 MW). Fiziksel sebep sahada dogrulanmali: as-built
+  // azimut, dogu tarafi golgeleme (agac/bina/cit), piranometrelerin panel
+  // duzlemiyle hizasi. (curtailment.py'de 174 "as-built" yaziyor — isaret
+  // hatasi olabilir: veri 174'u kesin reddediyor.)
+  panel_az: 185,
   // ── Faiman cell temperature ──────────────────────────────
   U0: 25.5, U1: 6.84,     // SCADA kalibre: olculen hucre sicakligina RMSE 1.24 C
   // ── Dusuk gunes duzeltmesi (2026-09 kalibrasyonu) ──────────
@@ -468,22 +477,18 @@ const PLANT = {
   // cam icin tipik 0.02-0.03'ten yuksek cikiyor.
   iam_b0:              0.075,     // efektif dusuk-aci kayip katsayisi
   p_self_mw:           0.25,      // MW — invertor bosta + ic tuketim
-  // ── Sabah pusu/cigi (yerel iklim) ──────────────────────────
-  // Ayni gunes yuksekliginde sabah ve ogleden sonra oranlari ciddi farkli:
-  //   elev  5-10°  sabah 0.763  |  ogleden sonra 1.110
-  //   elev 25-30°  sabah 0.953  |  ogleden sonra 1.083
-  // Bolgede gun dogumundan isinmaya kadar yer sisi olusuyor (saha gozlemi).
-  // Nem kismen aciklıyor (RH<%50'de oran 0.902, RH>%50'de 0.81) ama tek
-  // basina yetmiyor. SMP10 pyranometrelerin kubbe isiticisi var, ciy
-  // tutmuyorlar; paneller tutuyor — sensor temiz isinim okurken paneller
-  // islak kaliyor. Bu tam gozlenen imzayi uretir.
-  //
-  // Tekil sis olaylari NWP ile tahmin edilemez, ama sabahlarin tipik olarak
-  // puslu olmasi IKLIMSEL bir gercek ve tahmine yansimali. Asagidaki faktor
-  // ampirik bir iklim duzeltmesidir, fizik degildir.
-  //   carpan = 1 - fog * exp(-elev / tau)   (yalniz ogleden ONCE)
-  fog_morning:         0.30,      // elev→0'da %30 azaltma
-  fog_tau_deg:         18.0,      // yukseklikle sonme olcegi
+  // ── Sabah pusu (yerel iklim) ───────────────────────────────
+  // Acik gecelerde olusup isinmayla dagilan pus: gun dogumundan +1.0 saate
+  // kadar tam, +1.5 saatte sifir (saha gozlemi, 2026-09-28).
+  //   carpan = 1 - fog_morning * w(gun dogumundan saat)
+  // Onceki surum (0.30 * exp(-elev/18), 12:00'ye kadar) aslinda pus degil
+  // yukaridaki sabah/ogleden sonra asimetrisini yakaliyordu; o artik
+  // panel_az ile modelleniyor. Yaz verisinde bu pencerede kalan etki kucuk
+  // (fit ~0.03-0.05, RMSE'ye etkisi yok). Pusun daha sik oldugu sonbahar/kis
+  // verisiyle yeniden fit edin.
+  fog_morning:         0.05,      // pencere icinde %5 azaltma
+  fog_full_h:          1.0,       // gun dogumu + bu saate kadar tam etki
+  fog_end_h:           1.5,       // gun dogumu + bu saatte sifir
   // ── Belirsizlik bandi (2026-09, 879 temiz saat, uctan uca) ──
   // Modeller arasi uyusmazlik gercek hatayi onguruyor. Gun-oncesi guc
   // tahmininin olculen dogrulugu:
@@ -513,9 +518,11 @@ const PLANT = {
   //   GHI 300-500 → model ~+0.5 MW DUSUK,  GHI 600-900 → ~0.6-0.8 MW FAZLA.
   // Duzeltme = f(GHI, kt, sabah/ogleden sonra) tablosu, EMP_CORR asagida.
   // Ay-disarida-birak dogrulamasi (her ay ayri test), olculen GHI ile:
-  //   15-dk RMSE  Haz 1.32→1.14  Tem 1.08→0.91  Agu 0.90→0.64  Eyl 1.20→0.92
+  //   15-dk RMSE  Haz 1.26→1.11  Tem 1.03→0.89  Agu 0.78→0.61  Eyl 0.89→0.80
   // NWP GHI ile (saatlik, ensemble) kazanc kucuk — hata NWP isinimindan geliyor:
-  //   RMSE Haz 3.56→3.50  Tem 6.55→6.39  Agu 4.14→4.01  Eyl 5.40→5.40
+  //   RMSE Haz 3.62→3.54  Tem 6.52→6.38  Agu 4.06→3.99  Eyl 5.30→5.34
+  // Bugunku tum degisikliklerle (azimut, pus, duzeltme) NWP-saatlik toplam:
+  //   RMSE 5.21 → 5.07 MW, MAE 3.13 → 3.02 MW (eski zincire gore)
   // Yalniz Haz-Eyl verisi: kis rejimi ogrenilmedi, kisin yeniden fit edin.
   use_emp_corr:        true,
   // ── PR — SAHA SCADA'sindan kalibre (2026-06-01..08-12, 73 gun) ──
@@ -537,7 +544,9 @@ const PLANT = {
   //   0.8979 tasarim → 0.8290 (duzeltmesiz) → 0.8664 (IAM+P_self ile)
   // PR yukseldi cunku kaybin bir kismi artik ayri modelleniyor; NET etki
   // dusuk gunes saatlerinde tahmini asagi ceker.
-  pr_fixed:            0.8814,
+  // 2026-09-28: panel_az 185 + yeni pus penceresiyle yeniden olceklendi
+  // (0.8814 x 0.9947). Tum donem RMSE 1.110 → 1.022 MW (duzeltmesiz fizik).
+  pr_fixed:            0.8767,
 };
 const MODELS = {
   ecmwf:  { key: "ecmwf_ifs",                     label: "ECMWF IFS HRES 9km", color: "#2196F3" },
@@ -646,13 +655,17 @@ function solarPosition(lat_deg, lon_deg, dt_ms) {
   const sinEl = Math.sin(latR)*Math.sin(decl) + Math.cos(latR)*Math.cos(decl)*Math.cos(hra);
   const elev  = toDeg(Math.asin(Math.max(-1, Math.min(1, sinEl))));
 
-  if (elev <= 0) return { elev, az: 180 };
+  const ha    = toDeg(hra);   // saat acisi: <0 gunes ogleninden once
+  // Gun dogumundan beri saat: cos(w0) = -tan(lat) tan(decl)
+  const w0    = toDeg(Math.acos(Math.max(-1, Math.min(1, -Math.tan(latR) * Math.tan(decl)))));
+  const hSr   = (ha + w0) / 15;
+  if (elev <= 0) return { elev, az: 180, ha, hSr };
 
   const cosAz = (Math.sin(decl) - Math.sin(toRad(elev))*Math.sin(latR)) /
                 (Math.cos(toRad(elev))*Math.cos(latR));
   let az = toDeg(Math.acos(Math.max(-1, Math.min(1, cosAz))));
   if (hra > 0) az = 360 - az;
-  return { elev, az };
+  return { elev, az, ha, hSr };
 }
 
 // ── Perez 1990 full transposition ────────────────────────────
@@ -678,6 +691,12 @@ function perezBin(eps) {
 // ASHRAE formu. YALNIZ direkt + sirkumsolar bilesene uygulanir; difuz
 // bilesenin tek bir gelis acisi yoktur. Toplam PoA'ya uygulanirsa alcak
 // gunes acilarinda tahmin cokerdi (denendi, saatlik profil bozuldu).
+function fogWeight(hSr) {   // hSr: gun dogumundan beri saat
+  return Math.max(0, Math.min(1, (PLANT.fog_end_h - hSr) / (PLANT.fog_end_h - PLANT.fog_full_h)));
+}
+// Sabah/ogleden sonra duzeltme izgaralari arasinda oglen ±30 dk yumusak gecis
+function amWeight(ha)  { return Math.max(0, Math.min(1, 0.5 - ha / 15)); }
+
 function iamAshrae(cosAoi, b0) {
   if (cosAoi <= 1e-3) return 0;
   return Math.max(0, Math.min(1, 1 - b0 * (1/cosAoi - 1)));
@@ -755,12 +774,11 @@ function pvPower(poa, ghi, dhi, t_amb, wind, dt_ms) {
   const poaEff     = poa + PLANT.bifaciality * (ghi || 0) * rearFrac;
   // DC → AC
   let p_dc_mw      = (poaEff * PLANT.total_area_m2 * PLANT.module_eta * tempFactor * PLANT.pr_fixed) / 1e6;
-  // Sabah pusu/cigi — yalniz ogleden once, gunes yukseldikce soner
+  // Sabah pusu — gun dogumu +1.0 sa tam, +1.5 sa'da sifir (fogWeight).
   if (dt_ms !== undefined) {
     const pos = solarPosition(PLANT.lat, PLANT.lon, dt_ms);
-    const localHour = new Date(dt_ms).getHours();
-    if (localHour < 12 && pos.elev > 0) {
-      p_dc_mw *= 1 - PLANT.fog_morning * Math.exp(-pos.elev / PLANT.fog_tau_deg);
+    if (pos.elev > 0) {
+      p_dc_mw *= 1 - PLANT.fog_morning * fogWeight(pos.hSr);
     }
   }
   // Invertor bosta tuketimi + ic tuketim: gucle olceklenmez, sabit dusulur.
@@ -772,74 +790,76 @@ function pvPower(poa, ghi, dhi, t_amb, wind, dt_ms) {
 
 // ── Ampirik GHI duzeltme tablosu (MW) ─────────────────────────────
 // Satir: GHI 0,50,...,1100 W/m2   Sutun: kt 0,0.05,...,1.20
-// kt = GHI / (I0 * sin(elev)).  am: gunes azimutu <180 (sabah), pm: >=180.
+// kt = GHI / (I0 * sin(elev)).  am: sabah, pm: ogleden sonra; gunes ogleni
+// ±30 dk icinde ikisi yumusakca harmanlanir (amWeight).
 // Uretildi: ghi_power_curve.py → emp_corr_grid.json (HistGradientBoosting → izgara, seyrek
 // hucreler n/(n+20) ile sifira cekildi). Deger = gercek − fizik modeli.
 const EMP_CORR = {
   g0: 0, gstep: 50, k0: 0, kstep: 0.05,
   am: [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,0.11,0.19,0.23,0.29,0.34,0.31,0.21,0.18,0.18,0.27,0.15,0.1,0.07,0.06,0.13,0,0,0,0,0,0,0,0,0],
-    [0,0.14,0.33,0.55,0.51,0.51,0.36,0.23,0.2,0.17,0.27,0.14,0.17,0.26,0.23,0.35,0,0,0,0,0,0,0,0,0],
-    [0,0.04,0.37,0.65,0.55,0.49,0.42,0.2,0.15,0.08,0.16,0.02,0.1,0.3,0.41,0.53,0.16,0.16,0,0,0,0,0,0,0],
-    [0,0,0.12,0.64,0.72,0.69,0.62,0.35,0.26,0.14,0.21,-0.03,-0.06,-0.01,0.45,0.46,0.27,0.14,0,0,0,0,0,0,0],
-    [0,0,0,0.32,0.69,0.77,0.75,0.45,0.37,0.2,0.18,0.06,0.04,-0.03,0.47,0.44,0.26,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0.38,0.72,0.79,0.5,0.43,0.28,0.25,0.09,0.12,0.06,0.31,0.73,0.12,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0.44,0.65,0.47,0.44,0.4,0.35,0.14,0.26,0.28,0.28,0.93,0,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0.35,0.36,0.38,0.34,0.42,0.16,0.2,0.35,0.4,1.19,0.37,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0.08,0.24,0.38,0.37,0.46,0.18,0.15,0.35,0.42,1.1,0.5,0.09,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0.02,0.12,0.14,0.37,0.15,0.2,0.3,0.38,1,0.46,0.23,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,-0.09,-0.25,-0.03,-0.22,-0.01,0.11,0.25,0.77,0.42,0.19,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,-0.36,-0.46,-0.72,-0.51,-0.48,0.14,0.42,0.44,0.05,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,-0.45,-1.18,-0.95,-0.81,-0.03,0.18,0.37,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,-0.11,-1.22,-1.3,-1.19,-0.67,-0.09,0.07,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,-0.94,-1.31,-1.18,-0.23,-0.03,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,-0.48,-1.11,-1.87,-0.28,-0.13,-0.03,-0.01,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,-0.14,-1.68,-0.15,-0.29,-0.09,-0.02,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1.24,-0.12,-0.1,-0.04,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.17,-0.08,-0.09,-0.05,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.01,-0.04,-0.03,0,0,0,0,0,0,0],
+    [0,0.09,0.15,0.17,0.12,0.11,0.12,0.04,0.04,-0.02,0.04,0.09,0.09,0.09,0.07,0.13,0,0,0,0,0,0,0,0,0],
+    [0,0.13,0.29,0.42,0.25,0.2,0.06,-0.1,-0.1,-0.23,-0.16,-0.07,0.09,0.37,0.3,0.35,0,0,0,0,0,0,0,0,0],
+    [0,0.03,0.36,0.58,0.36,0.3,0.19,-0.09,-0.11,-0.34,-0.34,-0.36,-0.18,0.37,0.52,0.52,0.13,0.13,0,0,0,0,0,0,0],
+    [0,0,0.12,0.6,0.52,0.47,0.38,0.06,0.02,-0.17,-0.18,-0.36,-0.42,-0.07,0.51,0.42,0.21,0.11,0,0,0,0,0,0,0],
+    [0,0,0,0.33,0.65,0.71,0.63,0.29,0.24,0.04,-0.02,-0.19,-0.29,-0.3,0.34,0.35,0.19,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0.37,0.69,0.71,0.34,0.28,0.09,0.01,-0.09,-0.2,-0.23,0.34,0.66,0.09,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0.44,0.63,0.42,0.4,0.27,0.15,0.04,0.06,0.07,0.13,0.73,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0.4,0.41,0.43,0.31,0.22,0.09,0.1,0.18,0.2,1,0.27,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0.09,0.27,0.42,0.33,0.25,0.11,0.08,0.18,0.22,0.83,0.33,0.06,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0.04,0.21,0.11,0.18,0.11,0.1,0.16,0.2,0.81,0.32,0.16,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,-0.01,-0.18,-0.08,-0.11,-0.07,0.06,0.11,0.51,0.24,0.11,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,-0.32,-0.47,-0.59,-0.51,-0.49,0.01,0.38,0.26,0.03,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,-0.41,-0.94,-0.77,-0.69,-0.1,0.2,0.16,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,-0.1,-1.03,-1.11,-1,-0.58,-0.04,-0.05,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,-0.81,-1.11,-1.07,-0.13,-0.13,-0.01,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,-0.45,-1.04,-1.79,-0.21,-0.2,-0.05,-0.01,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,-0.12,-1.54,-0.08,-0.31,-0.09,-0.02,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1.17,-0.06,-0.08,-0.03,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.16,-0.04,-0.07,-0.04,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.01,-0.03,-0.02,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   ],
   pm: [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,0.15,0.29,0.44,0.15,0.15,0.19,0.09,0.06,0.02,0.05,0.06,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,0.17,0.39,0.64,0.3,0.31,0.15,-0.01,-0.07,-0.14,-0.08,0.17,0.08,0.28,0.24,0,0,0,0,0,0,0,0,0,0],
-    [0,0,0.35,0.69,0.41,0.41,0.31,-0.01,-0.06,-0.19,-0.21,0.07,0.12,0.43,0.35,0.16,0.18,0,0,0,0,0,0,0,0],
-    [0,0,0.2,0.75,0.7,0.67,0.56,0.23,0.17,0.03,0.04,0.22,0.2,0.48,0.21,0.28,0.33,0.17,0,0,0,0,0,0,0],
-    [0,0,0,0.36,0.72,0.75,0.66,0.42,0.4,0.23,0.23,0.26,0.26,0.55,0.18,0.14,0.31,0.31,0,0,0,0,0,0,0],
-    [0,0,0,0,0.44,0.66,0.68,0.51,0.49,0.32,0.32,0.38,0.4,0.6,0.4,0.11,0.14,0.26,0.14,0,0,0,0,0,0],
-    [0,0,0,0,0,0.41,0.64,0.55,0.52,0.47,0.52,0.57,0.68,0.94,0.65,0.56,0.35,0.24,0.13,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0.5,0.57,0.57,0.48,0.48,0.54,0.66,1,0.87,0.81,0.43,0.12,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0.23,0.47,0.55,0.54,0.52,0.55,0.62,1,0.95,0.88,0.38,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0.02,0.09,0.11,0.21,0.43,0.51,0.89,0.86,0.96,0.66,0.1,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,-0.16,-0.27,-0.23,-0.04,0.21,0.63,0.74,0.92,0.66,0.17,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,-0.33,-0.69,-0.65,-0.41,-0.14,0.58,0.67,0.47,0.18,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,-0.58,-0.87,-0.67,-0.46,0.47,0.5,0.31,0.09,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,-0.86,-1,-1.07,-0.21,0.16,0.16,0.02,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,-0.29,-0.48,-1.19,-0.82,-0.02,0.09,0.03,0.02,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,-1.2,-1.78,-0.16,0,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,-0.56,-1.66,-0.12,-0.17,-0.06,-0.01,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1.2,-0.07,-0.01,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.04,-0.01,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0.14,0.28,0.39,0.14,0.09,0.13,0.03,0.03,-0.05,-0.01,0.02,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0.2,0.45,0.66,0.3,0.23,0.02,-0.18,-0.18,-0.31,-0.27,-0.11,0.04,0.19,0.21,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0.4,0.78,0.41,0.39,0.19,-0.18,-0.2,-0.46,-0.57,-0.51,-0.2,0.2,0.28,0.12,0.13,0,0,0,0,0,0,0,0],
+    [0,0,0.23,0.84,0.6,0.55,0.39,0.04,0,-0.26,-0.37,-0.47,-0.43,0,0.12,0.19,0.22,0.12,0,0,0,0,0,0,0],
+    [0,0,0,0.44,0.78,0.79,0.66,0.35,0.35,0.08,-0.09,-0.21,-0.26,-0.14,0.07,0.08,0.19,0.19,0,0,0,0,0,0,0],
+    [0,0,0,0,0.49,0.73,0.74,0.43,0.41,0.14,-0.02,-0.12,-0.19,-0.14,0.18,0.08,0.09,0.18,0.09,0,0,0,0,0,0],
+    [0,0,0,0,0,0.44,0.67,0.52,0.5,0.34,0.2,0.12,0.09,0.13,0.11,0.32,0.21,0.15,0.08,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0.52,0.54,0.54,0.36,0.23,0.18,0.18,0.24,0.19,0.49,0.27,0.08,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0.24,0.43,0.5,0.4,0.26,0.2,0.18,0.26,0.22,0.4,0.2,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0.03,0.18,0.08,0.09,0.16,0.15,0.24,0.21,0.45,0.35,0.05,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,-0.03,-0.2,-0.18,-0.12,-0.06,0.12,0.12,0.27,0.27,0.07,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,-0.26,-0.57,-0.63,-0.57,-0.51,0.03,0.18,0.18,0.07,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,-0.51,-0.86,-0.77,-0.76,-0.07,0.05,0.07,0.02,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,-0.87,-1.08,-1.18,-0.53,-0.16,-0.05,-0.01,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,-0.29,-0.48,-1.19,-1.03,-0.21,-0.08,-0.03,-0.02,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,-1.17,-1.77,-0.3,-0.16,-0.05,-0.04,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,-0.51,-1.51,-0.15,-0.28,-0.1,-0.02,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1.13,-0.09,-0.08,-0.03,-0.01,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.05,-0.06,-0.03,-0.01,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.02,-0.03,-0.01,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.01,-0.01,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   ],
 };
-function empCorrection(ghi, elev, az, dt_ms) {
+function empCorrection(ghi, elev, ha, dt_ms) {
   if (!PLANT.use_emp_corr || !(ghi > 0) || !(elev > 0)) return 0;
   const d    = new Date(dt_ms);
   const doy  = Math.floor((dt_ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000) + 1;
   const i0h  = 1367 * (1 + 0.033 * Math.cos(2 * Math.PI * doy / 365)) * Math.sin(toRad(Math.max(elev, 1)));
   const kt   = Math.max(0, Math.min(1.2, ghi / i0h));
-  const G    = az < 180 ? EMP_CORR.am : EMP_CORR.pm;
-  const nG = G.length, nK = G[0].length;
+  const nG = EMP_CORR.am.length, nK = EMP_CORR.am[0].length;
   const gi = Math.max(0, Math.min(nG - 1 - 1e-9, (ghi - EMP_CORR.g0) / EMP_CORR.gstep));
   const ki = Math.max(0, Math.min(nK - 1 - 1e-9, (kt  - EMP_CORR.k0) / EMP_CORR.kstep));
   const a = Math.floor(gi), b = Math.floor(ki), x = gi - a, y = ki - b;
-  return G[a][b]*(1-x)*(1-y) + G[a+1][b]*x*(1-y) + G[a][b+1]*(1-x)*y + G[a+1][b+1]*x*y;
+  const bil = function(G){ return G[a][b]*(1-x)*(1-y) + G[a+1][b]*x*(1-y) + G[a][b+1]*(1-x)*y + G[a+1][b+1]*x*y; };
+  const w = amWeight(ha);
+  return w * bil(EMP_CORR.am) + (1 - w) * bil(EMP_CORR.pm);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -945,7 +965,7 @@ function processModel(raw) {
     const pRaw = pvPower(poa, ghiV, dhiV, tmp.values[i], wnd.values[i], tMid);
     const pos  = solarPosition(PLANT.lat, PLANT.lon, tMid);
     const pAc  = pRaw > 0
-      ? Math.min(Math.max(pRaw + empCorrection(ghiV, pos.elev, pos.az, tMid), 0), PLANT.ac_mw)
+      ? Math.min(Math.max(pRaw + empCorrection(ghiV, pos.elev, pos.ha, tMid), 0), PLANT.ac_mw)
       : 0;
     return {
       dt,
