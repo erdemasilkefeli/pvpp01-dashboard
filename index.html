@@ -197,31 +197,10 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   .error-msg { color:var(--danger); text-align:center; padding:16px; font-size:12px; }
 
-  /* ── Nomination suggestion panel ── */
-  .nom-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
-  .nom-stat { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
-  .nom-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--sub); margin-bottom: 4px; }
-  .nom-stat-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .nom-stat-sub   { font-size: 10px; color: var(--sub); margin-top: 2px; }
-  .conf-high   { color: var(--good); }
-  .conf-medium { color: var(--accent); }
-  .conf-low    { color: var(--danger); }
-  .nom-hint { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 11px; color: var(--sub); line-height: 1.6; }
-  .nom-hint strong { color: var(--text); }
-
-  /* ── Model Performance (Rolling RMSE) ── */
-  .rmse-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
-  .rmse-card { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
-  .rmse-model { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
-  .rmse-metric { display: flex; justify-content: space-between; font-size: 11px; color: var(--sub); padding: 2px 0; }
-  .rmse-metric span { color: var(--text); font-variant-numeric: tabular-nums; }
-  .window-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
-  .wtab { background: #21262d; border: 1px solid var(--border); color: var(--sub); border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer; transition: background .15s; }
-  .wtab.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
-  .rmse-no-data { color: var(--sub); font-size: 12px; text-align: center; padding: 30px; }
-  .rmse-no-data code { color: var(--accent); font-family: monospace; }
-
-
+  /* ── Excel export ── */
+  .btn.xls { border-color: #3fb950; color: #3fb950; }
+  .btn.xls:hover { background: rgba(63,185,80,.1); }
+  .btn.xls:disabled { opacity:.5; cursor:wait; }
 
   footer { text-align:center; padding:10px; color:var(--sub); font-size:10px; border-top:1px solid var(--border); line-height:1.7; }
   footer a { color: var(--sub); }
@@ -310,6 +289,7 @@
     <div id="clock">--:--:--</div>
     <button class="btn aiolos" onclick="openAiolosModal()">📥 Aiolos Input</button>
     <button class="btn dam"   onclick="openDamModal()">📋 DA Nomination</button>
+    <button class="btn xls" id="btn-xls" onclick="exportExcel()" title="Tüm modellerin 15-dk üretim tahminini .xlsx olarak indir">⬇ Excel</button>
     <button class="btn" onclick="loadAll()">↻ Refresh All</button>
   </div>
 </header>
@@ -414,7 +394,7 @@
     <div class="chart-wrap"><canvas id="chart-ghi"></canvas></div>
   </div>
   <div class="panel">
-    <div class="panel-title">Temperature &amp; Wind <span class="badge">ICON-EU 6.5 km</span></div>
+    <div class="panel-title">Temperature &amp; Wind <span class="badge">ECMWF IFS HRES 9 km</span></div>
     <div class="chart-wrap"><canvas id="chart-meteo"></canvas></div>
   </div>
 </div>
@@ -454,64 +434,6 @@
 </div>
 
 
-
-<!-- 4b. Suggested Nomination ─────────────────────────────────── -->
-<div class="panel" id="panel-nom-suggest">
-  <div class="panel-title">
-    Suggested DA Nomination
-    <span class="badge">Uncertainty-adjusted · auto from NWP spread</span>
-    <span class="badge" id="nom-date-badge">—</span>
-  </div>
-  <div class="nom-grid" id="nom-stats">
-    <div class="nom-stat">
-      <div class="nom-stat-label">Suggested Total</div>
-      <div class="nom-stat-value" id="nom-daily-mwh">—</div>
-      <div class="nom-stat-sub">MWh (day-ahead)</div>
-    </div>
-    <div class="nom-stat">
-      <div class="nom-stat-label">P50 (unconstrained)</div>
-      <div class="nom-stat-value" id="nom-p50-mwh">—</div>
-      <div class="nom-stat-sub">MWh</div>
-    </div>
-    <div class="nom-stat">
-      <div class="nom-stat-label">Conservatism</div>
-      <div class="nom-stat-value" id="nom-cons-pct">—</div>
-      <div class="nom-stat-sub">% of P50 nominated</div>
-    </div>
-    <div class="nom-stat">
-      <div class="nom-stat-label">Confidence</div>
-      <div class="nom-stat-value" id="nom-confidence">—</div>
-      <div class="nom-stat-sub">spread-based</div>
-    </div>
-  </div>
-  <div class="nom-hint" id="nom-hint" style="display:none"></div>
-  <div class="rmse-no-data" id="nom-no-data">
-    No suggestion yet. Run <code>python nomination.py --save</code> to generate.
-  </div>
-</div>
-
-<!-- 5. Model Performance (Rolling RMSE) ────────────────────── -->
-<div class="panel">
-  <div class="panel-title">
-    NWP Model Performance
-    <span class="badge">GHI vs EUMETSAT Satellite Reference</span>
-    <span class="badge" id="rmse-period-badge">no data yet</span>
-  </div>
-  <div class="window-tabs">
-    <button class="wtab active" onclick="setRmseWindow(30,this)">30 days</button>
-    <button class="wtab"        onclick="setRmseWindow(60,this)">60 days</button>
-    <button class="wtab"        onclick="setRmseWindow(90,this)">90 days</button>
-  </div>
-  <div class="rmse-summary" id="rmse-summary-cards"></div>
-  <div class="chart-wrap">
-    <canvas id="chart-rmse" style="display:none"></canvas>
-    <div class="rmse-no-data" id="rmse-no-data">
-      No performance data yet.<br/>
-      Run <code>python rolling_rmse.py</code> once to generate scores,
-      then <code>python pipeline.py</code> will update it daily.
-    </div>
-  </div>
-</div>
 
 <footer>
   Mezobereny PVPP &nbsp;·&nbsp; 64.225 MWp / 49.8 MW AC &nbsp;·&nbsp;
@@ -581,7 +503,21 @@ const PLANT = {
   total_area_m2:       277586,     // 102 760 × 2.382 m × 1.134 m
   bifaciality:         0.80,       // 80% bifacial factor
   bifacial_rear_frac:  0.12,       // base rear irradiance fraction
-  ground_albedo:       0.20,
+  // Olculen albedo (ST1/4/5/7 albedometreleri, 2026-06..09, GHI>300):
+  //   medyan 0.101, IQR 0.081-0.123, aylik 0.090/0.106/0.108/0.099
+  // Onceki 0.20 varsayimdi. On yuzey etkisi kucuk (~%0.3 PoA); arka yuzey
+  // bifacial_rear_frac ile ampirik kalibre edildigi icin ona dokunulmadi.
+  ground_albedo:       0.10,
+  // ── Ampirik GHI duzeltmesi (2026-09, 4.012 temiz 15-dk slot) ──
+  // Fiziksel zincirin olculen GHI ile artigi GHI'a gore S-seklinde:
+  //   GHI 300-500 → model ~+0.5 MW DUSUK,  GHI 600-900 → ~0.6-0.8 MW FAZLA.
+  // Duzeltme = f(GHI, kt, sabah/ogleden sonra) tablosu, EMP_CORR asagida.
+  // Ay-disarida-birak dogrulamasi (her ay ayri test), olculen GHI ile:
+  //   15-dk RMSE  Haz 1.32→1.14  Tem 1.08→0.91  Agu 0.90→0.64  Eyl 1.20→0.92
+  // NWP GHI ile (saatlik, ensemble) kazanc kucuk — hata NWP isinimindan geliyor:
+  //   RMSE Haz 3.56→3.50  Tem 6.55→6.39  Agu 4.14→4.01  Eyl 5.40→5.40
+  // Yalniz Haz-Eyl verisi: kis rejimi ogrenilmedi, kisin yeniden fit edin.
+  use_emp_corr:        true,
   // ── PR — SAHA SCADA'sindan kalibre (2026-06-01..08-12, 73 gun) ──
   // Referans: SMP10 PoA pyranometreleri, Si-sensor hucre sicakligi, 166
   // invertor guc toplami, santral kontrolorunun curtailment kanali.
@@ -834,6 +770,78 @@ function pvPower(poa, ghi, dhi, t_amb, wind, dt_ms) {
 }
 
 
+// ── Ampirik GHI duzeltme tablosu (MW) ─────────────────────────────
+// Satir: GHI 0,50,...,1100 W/m2   Sutun: kt 0,0.05,...,1.20
+// kt = GHI / (I0 * sin(elev)).  am: gunes azimutu <180 (sabah), pm: >=180.
+// Uretildi: ghi_power_curve.py → emp_corr_grid.json (HistGradientBoosting → izgara, seyrek
+// hucreler n/(n+20) ile sifira cekildi). Deger = gercek − fizik modeli.
+const EMP_CORR = {
+  g0: 0, gstep: 50, k0: 0, kstep: 0.05,
+  am: [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0.11,0.19,0.23,0.29,0.34,0.31,0.21,0.18,0.18,0.27,0.15,0.1,0.07,0.06,0.13,0,0,0,0,0,0,0,0,0],
+    [0,0.14,0.33,0.55,0.51,0.51,0.36,0.23,0.2,0.17,0.27,0.14,0.17,0.26,0.23,0.35,0,0,0,0,0,0,0,0,0],
+    [0,0.04,0.37,0.65,0.55,0.49,0.42,0.2,0.15,0.08,0.16,0.02,0.1,0.3,0.41,0.53,0.16,0.16,0,0,0,0,0,0,0],
+    [0,0,0.12,0.64,0.72,0.69,0.62,0.35,0.26,0.14,0.21,-0.03,-0.06,-0.01,0.45,0.46,0.27,0.14,0,0,0,0,0,0,0],
+    [0,0,0,0.32,0.69,0.77,0.75,0.45,0.37,0.2,0.18,0.06,0.04,-0.03,0.47,0.44,0.26,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0.38,0.72,0.79,0.5,0.43,0.28,0.25,0.09,0.12,0.06,0.31,0.73,0.12,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0.44,0.65,0.47,0.44,0.4,0.35,0.14,0.26,0.28,0.28,0.93,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0.35,0.36,0.38,0.34,0.42,0.16,0.2,0.35,0.4,1.19,0.37,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0.08,0.24,0.38,0.37,0.46,0.18,0.15,0.35,0.42,1.1,0.5,0.09,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0.02,0.12,0.14,0.37,0.15,0.2,0.3,0.38,1,0.46,0.23,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,-0.09,-0.25,-0.03,-0.22,-0.01,0.11,0.25,0.77,0.42,0.19,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,-0.36,-0.46,-0.72,-0.51,-0.48,0.14,0.42,0.44,0.05,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,-0.45,-1.18,-0.95,-0.81,-0.03,0.18,0.37,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,-0.11,-1.22,-1.3,-1.19,-0.67,-0.09,0.07,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,-0.94,-1.31,-1.18,-0.23,-0.03,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,-0.48,-1.11,-1.87,-0.28,-0.13,-0.03,-0.01,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,-0.14,-1.68,-0.15,-0.29,-0.09,-0.02,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1.24,-0.12,-0.1,-0.04,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.17,-0.08,-0.09,-0.05,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.01,-0.04,-0.03,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  ],
+  pm: [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0.15,0.29,0.44,0.15,0.15,0.19,0.09,0.06,0.02,0.05,0.06,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0.17,0.39,0.64,0.3,0.31,0.15,-0.01,-0.07,-0.14,-0.08,0.17,0.08,0.28,0.24,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0.35,0.69,0.41,0.41,0.31,-0.01,-0.06,-0.19,-0.21,0.07,0.12,0.43,0.35,0.16,0.18,0,0,0,0,0,0,0,0],
+    [0,0,0.2,0.75,0.7,0.67,0.56,0.23,0.17,0.03,0.04,0.22,0.2,0.48,0.21,0.28,0.33,0.17,0,0,0,0,0,0,0],
+    [0,0,0,0.36,0.72,0.75,0.66,0.42,0.4,0.23,0.23,0.26,0.26,0.55,0.18,0.14,0.31,0.31,0,0,0,0,0,0,0],
+    [0,0,0,0,0.44,0.66,0.68,0.51,0.49,0.32,0.32,0.38,0.4,0.6,0.4,0.11,0.14,0.26,0.14,0,0,0,0,0,0],
+    [0,0,0,0,0,0.41,0.64,0.55,0.52,0.47,0.52,0.57,0.68,0.94,0.65,0.56,0.35,0.24,0.13,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0.5,0.57,0.57,0.48,0.48,0.54,0.66,1,0.87,0.81,0.43,0.12,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0.23,0.47,0.55,0.54,0.52,0.55,0.62,1,0.95,0.88,0.38,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0.02,0.09,0.11,0.21,0.43,0.51,0.89,0.86,0.96,0.66,0.1,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,-0.16,-0.27,-0.23,-0.04,0.21,0.63,0.74,0.92,0.66,0.17,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,-0.33,-0.69,-0.65,-0.41,-0.14,0.58,0.67,0.47,0.18,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,-0.58,-0.87,-0.67,-0.46,0.47,0.5,0.31,0.09,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,-0.86,-1,-1.07,-0.21,0.16,0.16,0.02,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,-0.29,-0.48,-1.19,-0.82,-0.02,0.09,0.03,0.02,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,-1.2,-1.78,-0.16,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,-0.56,-1.66,-0.12,-0.17,-0.06,-0.01,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1.2,-0.07,-0.01,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-0.04,-0.01,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  ],
+};
+function empCorrection(ghi, elev, az, dt_ms) {
+  if (!PLANT.use_emp_corr || !(ghi > 0) || !(elev > 0)) return 0;
+  const d    = new Date(dt_ms);
+  const doy  = Math.floor((dt_ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000) + 1;
+  const i0h  = 1367 * (1 + 0.033 * Math.cos(2 * Math.PI * doy / 365)) * Math.sin(toRad(Math.max(elev, 1)));
+  const kt   = Math.max(0, Math.min(1.2, ghi / i0h));
+  const G    = az < 180 ? EMP_CORR.am : EMP_CORR.pm;
+  const nG = G.length, nK = G[0].length;
+  const gi = Math.max(0, Math.min(nG - 1 - 1e-9, (ghi - EMP_CORR.g0) / EMP_CORR.gstep));
+  const ki = Math.max(0, Math.min(nK - 1 - 1e-9, (kt  - EMP_CORR.k0) / EMP_CORR.kstep));
+  const a = Math.floor(gi), b = Math.floor(ki), x = gi - a, y = ki - b;
+  return G[a][b]*(1-x)*(1-y) + G[a+1][b]*x*(1-y) + G[a][b+1]*(1-x)*y + G[a+1][b+1]*x*y;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Open-Meteo fetch + process
 // ═══════════════════════════════════════════════════════════════
@@ -932,13 +940,20 @@ function processModel(raw) {
   return ghi.times.map((dt, i) => {
     const ghiV = ghi.values[i], dhiV = dhi.values[i], dniV = dni.values[i];
     // Use slot midpoint (+7.5 min) for solar geometry — matches production_forecast.py
-    const poa  = ghiToPoa(ghiV, dhiV, dniV, gti.values[i], dt.getTime() + 7.5*60000);
+    const tMid = dt.getTime() + 7.5*60000;
+    const poa  = ghiToPoa(ghiV, dhiV, dniV, gti.values[i], tMid);
+    const pRaw = pvPower(poa, ghiV, dhiV, tmp.values[i], wnd.values[i], tMid);
+    const pos  = solarPosition(PLANT.lat, PLANT.lon, tMid);
+    const pAc  = pRaw > 0
+      ? Math.min(Math.max(pRaw + empCorrection(ghiV, pos.elev, pos.az, tMid), 0), PLANT.ac_mw)
+      : 0;
     return {
       dt,
       ghi: ghiV, dhi: dhiV, dni: dniV,
       t_amb: tmp.values[i], wind: wnd.values[i], cloudcover: cc.values[i],
       poa,
-      p_ac: pvPower(poa, ghiV, dhiV, tmp.values[i], wnd.values[i], dt.getTime() + 7.5*60000),
+      p_raw: pRaw,     // fizik zinciri, duzeltmesiz
+      p_ac:  pAc,      // ampirik GHI duzeltmeli (grafik/tablo/ensemble bunu kullanir)
     };
   });
 }
@@ -1306,6 +1321,35 @@ function ds(label, data, color, opts) {
   };
 }
 
+// ── Belirsizlik bandi (P10–P90) — grafik ve Excel ortak kullanir ──
+// Modeller arasi standart sapmadan turetilir. Genis band = modeller
+// anlasmiyor = o slotta nominasyon riski yuksek.
+function computeBand() {
+  var lo = [], hi = [];
+  if (!modelData.ensemble) return { lo: lo, hi: hi };
+  for (var bi = 0; bi < modelData.ensemble.length; bi++) {
+    // Spread mevcut TUM uyelerden hesaplanir (ALADIN dahil, varsa)
+    var vals = [];
+    ENSEMBLE_MEMBERS.forEach(function(k){
+      var row = modelData[k] && modelData[k][bi];
+      if (row && isFinite(row.p_ac)) vals.push(row.p_ac);
+    });
+    if (vals.length < 2) { lo.push(null); hi.push(null); continue; }
+    var mu = vals.reduce(function(a,b){return a+b;},0) / vals.length;
+    var vr = vals.reduce(function(a,x){return a+(x-mu)*(x-mu);},0) / (vals.length-1);
+    var sd = Math.sqrt(Math.max(vr, 0));
+    var sig  = PLANT.sigma_a + PLANT.sigma_b * sd;
+    // Tavana yapisan slotlarda spread cokuyor ama hata cokmuyor
+    if (mu > PLANT.ac_mw - 2) sig += PLANT.sigma_cap_extra;
+    var e = modelData.ensemble[bi].p_ac;
+    // Gece / tum uyeler sifir: band anlamsiz, sifirda tut
+    if (e <= 0 && mu <= 0) { lo.push(0); hi.push(0); continue; }
+    lo.push(+Math.max(e - PLANT.band_z * sig, 0).toFixed(2));
+    hi.push(+Math.min(e + PLANT.band_z * sig, PLANT.ac_mw).toFixed(2));
+  }
+  return { lo: lo, hi: hi };
+}
+
 // ── 1. NWP Power Forecast ──────────────────────────────────────────────
 function drawPowerChart() {
   if (!modelData.ecmwf) return;
@@ -1324,28 +1368,8 @@ function drawPowerChart() {
     datasets.push(ds('CHMI ALADIN', modelData.aladin.map(function(r){
       return isFinite(r.p_ac) ? +r.p_ac.toFixed(2) : null; }), '#00BCD4', {hidden:!v.aladin}));
   }
-  // ── Belirsizlik bandi (P10–P90) ────────────────────────────
-  // Modeller arasi standart sapmadan turetilir. Genis band = modeller
-  // anlasmiyor = o slotta nominasyon riski yuksek.
-  var bandLo = [], bandHi = [];
-  for (var bi = 0; bi < modelData.ensemble.length; bi++) {
-    // Spread mevcut TUM uyelerden hesaplanir (ALADIN dahil, varsa)
-    var vals = [];
-    ENSEMBLE_MEMBERS.forEach(function(k){
-      var row = modelData[k] && modelData[k][bi];
-      if (row && isFinite(row.p_ac)) vals.push(row.p_ac);
-    });
-    if (vals.length < 2) { bandLo.push(null); bandHi.push(null); continue; }
-    var mu = vals.reduce(function(a,b){return a+b;},0) / vals.length;
-    var vr = vals.reduce(function(a,x){return a+(x-mu)*(x-mu);},0) / (vals.length-1);
-    var sd = Math.sqrt(Math.max(vr, 0));
-    var sig  = PLANT.sigma_a + PLANT.sigma_b * sd;
-    // Tavana yapisan slotlarda spread cokuyor ama hata cokmuyor
-    if (mu > PLANT.ac_mw - 2) sig += PLANT.sigma_cap_extra;
-    var e = modelData.ensemble[bi].p_ac;
-    bandLo.push(+Math.max(e - PLANT.band_z * sig, 0).toFixed(2));
-    bandHi.push(+Math.min(e + PLANT.band_z * sig, PLANT.ac_mw).toFixed(2));
-  }
+  // ── Belirsizlik bandi (P10–P90) — bkz. computeBand() ──
+  var band = computeBand(); var bandLo = band.lo, bandHi = band.hi;
   datasets.push(ds('P90', bandHi, 'rgba(224,64,251,0.00)',
     {width:0, hidden:!v.ensemble, pointRadius:0}));
   var dsLo = ds('Belirsizlik (P10–P90)', bandLo, 'rgba(224,64,251,0.00)',
@@ -1400,16 +1424,16 @@ function drawGHI() {
 
 // ── 3b. Temperature & Wind ────────────────────────────────────────────
 function drawMeteo() {
-  if (!modelData.icon) return;
-  var labels = modelData.icon.map(function(r){ return fmtTime(r.dt); });
+  if (!modelData.ecmwf) return;   // kaynak: ECMWF IFS HRES
+  var labels = modelData.ecmwf.map(function(r){ return fmtTime(r.dt); });
   destroyChart('meteo');
   charts['meteo'] = new Chart(document.getElementById('chart-meteo'), {
     type: 'line',
     data: { labels: labels, datasets: [
-      {label:'Temp (C)', data:modelData.icon.map(function(r){ return +r.t_amb.toFixed(1); }),
+      {label:'Temp (C)', data:modelData.ecmwf.map(function(r){ return +r.t_amb.toFixed(1); }),
        borderColor:'#ff7043', backgroundColor:'#ff704318', borderWidth:1.5,
        pointRadius:0, fill:true, tension:0.4, yAxisID:'y'},
-      {label:'Wind (m/s)', data:modelData.icon.map(function(r){ return +r.wind.toFixed(1); }),
+      {label:'Wind (m/s)', data:modelData.ecmwf.map(function(r){ return +r.wind.toFixed(1); }),
        borderColor:'#42a5f5', borderWidth:1.5, pointRadius:0, fill:false, tension:0.3, yAxisID:'y2'},
     ]},
     options: { ...BASE, scales: {
@@ -1529,7 +1553,7 @@ async function refreshNWP() {
     modelData.ensemble = base.map(function(r, i){
       // Eksik uye olursa kalan agirliklar yeniden normalize edilir, boylece
       // toplam her zaman 1 olur ve ensemble asagi cekilmez.
-      var sp = 0, sg = 0, wsum = 0;
+      var sp = 0, sg = 0, sr = 0, wsum = 0;
       members.forEach(function(k){
         var row = modelData[k][i];
         if (!row) return;
@@ -1537,10 +1561,10 @@ async function refreshNWP() {
         // Ufkun otesi: gunduz olmasina ragmen GHI tam sifir → veri yok say
         if (row.ghi === 0 && r.ghi > 5) return;
         var w = ENSEMBLE_WEIGHTS[k] || 0;
-        sp += w * row.p_ac; sg += w * row.ghi; wsum += w;
+        sp += w * row.p_ac; sg += w * row.ghi; sr += w * row.p_raw; wsum += w;
       });
       if (wsum <= 0) return Object.assign({}, r);
-      return Object.assign({}, r, { p_ac: sp/wsum, ghi: sg/wsum });
+      return Object.assign({}, r, { p_ac: sp/wsum, ghi: sg/wsum, p_raw: sr/wsum });
     });
     var results = settled.map(function(r){ return r.value; });
     nwpLastMs = Date.now();
@@ -1590,170 +1614,154 @@ function updateClock() {
 
 
 // ═══════════════════════════════════════════════════════════════
-// Suggested Nomination Panel
+// Excel export — tum modellerin 15-dk uretim tahmini
 // ═══════════════════════════════════════════════════════════════
-function loadNominationSuggestion() {
-  var old = document.getElementById('nomination-script');
-  if (old) old.remove();
-  delete window.NOMINATION_DATA;
-  var s = document.createElement('script');
-  s.id  = 'nomination-script';
-  s.src = './nomination_data.js?' + Date.now();
-  s.onload = function() {
-    if (!window.NOMINATION_DATA) return;
-    renderNominationPanel(window.NOMINATION_DATA);
-  };
-  s.onerror = function() {}; // henüz oluşturulmadı — placeholder görünür
-  document.head.appendChild(s);
-}
-
-function renderNominationPanel(data) {
-  const noData = document.getElementById('nom-no-data');
-  const hint   = document.getElementById('nom-hint');
-  if (!data || !data.slots) { noData.style.display = 'block'; return; }
-
-  noData.style.display = 'none';
-
-  // Badge
-  document.getElementById('nom-date-badge').textContent = data.date || '—';
-
-  // Stats
-  document.getElementById('nom-daily-mwh').textContent = data.daily_mwh?.toFixed(1) ?? '—';
-  document.getElementById('nom-p50-mwh').textContent   = data.p50_mwh?.toFixed(1) ?? '—';
-  document.getElementById('nom-cons-pct').textContent  = (data.conservative_pct ?? '—') + '%';
-
-  const confEl  = document.getElementById('nom-confidence');
-  const confMap = { high: 'HIGH', medium: 'MEDIUM', low: 'LOW' };
-  const confCls = { high: 'conf-high', medium: 'conf-medium', low: 'conf-low' };
-  const conf    = data.confidence || 'medium';
-  confEl.textContent = confMap[conf] || conf.toUpperCase();
-  confEl.className   = 'nom-stat-value ' + (confCls[conf] || '');
-
-  // Hint message
-  const hintMsg = {
-    high   : '<strong>Low uncertainty day</strong> — NWP models agree well. Nomination is close to P50.',
-    medium : '<strong>Moderate uncertainty</strong> — Some model spread detected. Nomination includes an 8–12% safety haircut.',
-    low    : '<strong>High uncertainty day</strong> — Large model spread. Nomination has a 20% haircut below P50. Consider manual review.',
-  };
-  hint.innerHTML    = hintMsg[conf] || '';
-  hint.style.display = 'block';
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Rolling RMSE Performance Panel
-// ═══════════════════════════════════════════════════════════════
-let rmseAllScores = [];
-let rmseChart     = null;
-let rmseWindow    = 30;
-
-function loadRmseData() {
-  var old = document.getElementById('scores-script');
-  if (old) old.remove();
-  delete window.SCORES_DATA;
-  var s = document.createElement('script');
-  s.id  = 'scores-script';
-  s.src = './scores_data.js?' + Date.now();
-  s.onload = function() {
-    if (!window.SCORES_DATA) return;
-    rmseAllScores = window.SCORES_DATA;
-    renderRmsePanel(rmseWindow);
-  };
-  s.onerror = function() {}; // henüz oluşturulmadı — placeholder görünür
-  document.head.appendChild(s);
-}
-
-function setRmseWindow(days, btn) {
-  rmseWindow = days;
-  document.querySelectorAll('.wtab').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  renderRmsePanel(days);
-}
-
-function renderRmsePanel(days) {
-  const noData = document.getElementById('rmse-no-data');
-  const canvas = document.getElementById('chart-rmse');
-  const badge  = document.getElementById('rmse-period-badge');
-  const cards  = document.getElementById('rmse-summary-cards');
-
-  if (!rmseAllScores.length) {
-    noData.style.display = 'block'; canvas.style.display = 'none'; return;
-  }
-
-  const cutoff   = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-  const filtered = rmseAllScores.filter(s => s.date >= cutoff);
-
-  if (!filtered.length) {
-    noData.style.display = 'block'; canvas.style.display = 'none';
-    badge.textContent = 'no data in window'; return;
-  }
-
-  noData.style.display = 'none'; canvas.style.display = 'block';
-  badge.textContent = `${filtered[0].date} → ${filtered[filtered.length-1].date} (${filtered.length} days)`;
-
-  const labels = filtered.map(s => s.date.slice(5));   // MM-DD
-  const mCfg = [
-    { key: 'ecmwf',  name: 'ECMWF 9km',     color: '#2196F3' },
-    { key: 'aladin', name: 'ARPEGE 11km',    color: '#FF9800' },
-    { key: 'icon',   name: 'ICON-EU 6.5km',  color: '#4CAF50' },
-  ];
-
-  // Summary cards
-  cards.innerHTML = '';
-  for (const { key, name, color } of mCfg) {
-    const vals = filtered.filter(s => s[key]).map(s => s[key]);
-    if (!vals.length) continue;
-    const n    = vals.length;
-    const rmse = (vals.reduce((a, v) => a + v.rmse, 0) / n).toFixed(1);
-    const mae  = (vals.reduce((a, v) => a + v.mae,  0) / n).toFixed(1);
-    const mbe  = (vals.reduce((a, v) => a + v.mbe,  0) / n).toFixed(1);
-    const mbeStr = (parseFloat(mbe) >= 0 ? '+' : '') + mbe;
-    cards.innerHTML += `
-      <div class="rmse-card">
-        <div class="rmse-model" style="color:${color}">${name}</div>
-        <div class="rmse-metric">RMSE <span>${rmse} W/m²</span></div>
-        <div class="rmse-metric">MAE  <span>${mae} W/m²</span></div>
-        <div class="rmse-metric">MBE  <span>${mbeStr} W/m²</span></div>
-        <div class="rmse-metric">Days <span>${n}</span></div>
-      </div>`;
-  }
-
-  // Line chart
-  const datasets = mCfg.map(({ key, name, color }) => ({
-    label           : name,
-    data            : filtered.map(s => s[key]?.rmse ?? null),
-    borderColor     : color,
-    backgroundColor : color + '22',
-    borderWidth     : 1.5,
-    pointRadius     : 2,
-    tension         : 0.3,
-    spanGaps        : true,
-  }));
-
-  if (rmseChart) { rmseChart.destroy(); rmseChart = null; }
-  rmseChart = new Chart(canvas, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { labels: { color: '#8b949e', boxWidth: 12, padding: 12 } },
-        tooltip: {
-          backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
-          titleColor: '#e6edf3', bodyColor: '#8b949e',
-          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'} W/m²` }
-        }
-      },
-      scales: {
-        x: { ticks: { color: '#8b949e', maxTicksLimit: 12 }, grid: { color: '#21262d' } },
-        y: {
-          ticks: { color: '#8b949e', callback: v => v + ' W/m²' },
-          grid : { color: '#21262d' },
-          title: { display: true, text: 'RMSE (W/m²)', color: '#8b949e', font: { size: 10 } }
-        }
-      }
-    }
+// SheetJS yalnizca butona basilinca yuklenir (sayfa acilisini yavaslatmaz).
+const XLSX_SRC = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+function loadXlsxLib() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = XLSX_SRC;
+    s.onload  = function(){ window.XLSX ? resolve(window.XLSX) : reject(new Error('XLSX yuklenemedi')); };
+    s.onerror = function(){ reject(new Error('SheetJS indirilemedi (' + XLSX_SRC + ')')); };
+    document.head.appendChild(s);
   });
+}
+
+// Budapest yerel saatini Excel seri tarihine cevir (tarayicinin saat
+// diliminden bagimsiz). Excel seri = gun sayisi 1899-12-30'dan itibaren.
+const _BUD_FMT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+function budParts(dt) {
+  var o = {}; _BUD_FMT.formatToParts(dt).forEach(function(p){ o[p.type] = +p.value; });
+  return o;
+}
+function excelSerial(dt) {
+  var p = budParts(dt);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) / 86400000 + 25569;
+}
+function excelDay(dt) {
+  var p = budParts(dt);
+  return Date.UTC(p.year, p.month - 1, p.day) / 86400000 + 25569;
+}
+function colLetter(n) {  // 0 → A
+  var s = ''; n++;
+  while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+
+async function exportExcel() {
+  var btn = document.getElementById('btn-xls');
+  if (!modelData.ensemble || !modelData.ensemble.length) {
+    alert('Henuz NWP verisi yok — once verinin yuklenmesini bekleyin.'); return;
+  }
+  var oldTxt = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Excel…';
+  try {
+    var X = await loadXlsxLib();
+    var ens = modelData.ensemble;
+    var band = computeBand();
+    var aioMap = new Map(aiolosData.map(function(r){ return [r.dt.getTime(), r]; }));
+    var damMap = new Map(damData.map(function(r){ return [r.dt.getTime(), r]; }));
+    var mk = ['ecmwf','icon','arpege','aladin'];
+    var mLbl = { ecmwf:'ECMWF HRES', icon:'ICON-EU', arpege:'ARPEGE', aladin:'CHMI ALADIN' };
+    function val(k, i, f) {
+      var row = modelData[k] && modelData[k][i];
+      if (!row || !isFinite(row[f])) return null;
+      // ALADIN ufkun otesinde GHI=0 donebilir → veri yok say
+      if (k === 'aladin' && row.ghi === 0 && ens[i].ghi > 5) return null;
+      return +row[f].toFixed(f === 'ghi' ? 0 : 3);
+    }
+
+    // ── Sayfa 1: 15-dk tahmin ─────────────────────────────────
+    var head = ['Slot baslangici (Budapest)', 'Gun'];
+    mk.forEach(function(k){ head.push(mLbl[k] + ' (MW)'); });
+    head.push('Ensemble (MW)', 'P10 (MW)', 'P90 (MW)', 'Ensemble fizik-duzeltmesiz (MW)',
+              'Aiolos (MW)', 'DA Nom (MW)');
+    mk.forEach(function(k){ head.push(mLbl[k] + ' GHI (W/m2)'); });
+    head.push('Ensemble GHI (W/m2)', 'ECMWF Sicaklik (C)', 'ECMWF Ruzgar (m/s)');
+    var aoa = [head];
+    ens.forEach(function(r, i){
+      var ts = r.dt.getTime(), aio = aioMap.get(ts), dam = damMap.get(ts), ec = modelData.ecmwf && modelData.ecmwf[i];
+      var row = [excelSerial(r.dt), excelDay(r.dt)];
+      mk.forEach(function(k){ row.push(val(k, i, 'p_ac')); });
+      row.push(+r.p_ac.toFixed(3), band.lo[i], band.hi[i],
+               isFinite(r.p_raw) ? +r.p_raw.toFixed(3) : null,
+               aio ? +aio.p_ac.toFixed(3) : null, dam ? +dam.mw.toFixed(3) : null);
+      mk.forEach(function(k){ row.push(val(k, i, 'ghi')); });
+      row.push(+r.ghi.toFixed(0),
+               ec && isFinite(ec.t_amb) ? +ec.t_amb.toFixed(1) : null,
+               ec && isFinite(ec.wind)  ? +ec.wind.toFixed(1)  : null);
+      aoa.push(row);
+    });
+    var ws = X.utils.aoa_to_sheet(aoa);
+    var nRows = aoa.length;
+    for (var ri = 2; ri <= nRows; ri++) {
+      ws['A' + ri].z = 'yyyy-mm-dd hh:mm';
+      ws['B' + ri].z = 'yyyy-mm-dd';
+    }
+    var powerCols = [];                          // C..K: guc sutunlari
+    for (var ci = 2; ci < 2 + mk.length + 6; ci++) {
+      powerCols.push(ci);
+      for (var rj = 2; rj <= nRows; rj++) { var c = ws[colLetter(ci) + rj]; if (c && c.t === 'n') c.z = '0.00'; }
+    }
+    ws['!cols'] = head.map(function(h, i){ return { wch: i === 0 ? 18 : i === 1 ? 11 : Math.max(10, Math.min(h.length + 2, 22)) }; });
+    ws['!autofilter'] = { ref: 'A1:' + colLetter(head.length - 1) + nRows };
+
+    // ── Sayfa 2: Gunluk enerji — CANLI formuller ──────────────
+    // 15-dk sayfasinda deger degistirilirse ozet kendiliginden guncellenir.
+    var days = []; var seen = {};
+    for (var di = 1; di < aoa.length; di++) { var dv = aoa[di][1]; if (!seen[dv]) { seen[dv] = 1; days.push(dv); } }
+    var sh = "'15dk_Tahmin'";
+    var rngDay = sh + '!$B$2:$B$' + nRows;
+    var sumHead = ['Gun'];
+    var energyCols = powerCols.filter(function(ci){ var h = head[ci]; return h.indexOf('P10') < 0 && h.indexOf('P90') < 0; });
+    energyCols.forEach(function(ci){ sumHead.push(head[ci].replace(' (MW)', ' MWh')); });
+    energyCols.forEach(function(ci){ sumHead.push(head[ci].replace(' (MW)', ' tepe MW')); });
+    var ws2 = X.utils.aoa_to_sheet([sumHead]);
+    days.forEach(function(dv, k){
+      var r = k + 2;
+      ws2['A' + r] = { t: 'n', v: dv, z: 'yyyy-mm-dd' };
+      energyCols.forEach(function(ci, j){
+        var col = colLetter(ci), rng = sh + '!$' + col + '$2:$' + col + '$' + nRows;
+        ws2[colLetter(1 + j) + r] = { t: 'n', f: 'SUMIFS(' + rng + ',' + rngDay + ',$A' + r + ')*0.25', z: '0.0' };
+        ws2[colLetter(1 + energyCols.length + j) + r] =
+          { t: 'n', f: '_xlfn.MAXIFS(' + rng + ',' + rngDay + ',$A' + r + ')', z: '0.00' };
+      });
+    });
+    ws2['!ref'] = 'A1:' + colLetter(sumHead.length - 1) + (days.length + 1);
+    ws2['!cols'] = sumHead.map(function(h, i){ return { wch: i === 0 ? 12 : Math.max(10, Math.min(h.length + 2, 26)) }; });
+
+    // ── Sayfa 3: Bilgi ─────────────────────────────────────────
+    var info = [
+      ['Mezobereny PVPP — NWP uretim tahmini'],
+      ['Olusturulma (Budapest)', new Date().toLocaleString('en-GB', { timeZone: 'Europe/Budapest' })],
+      ['NWP son guncelleme', nwpLastMs ? new Date(nwpLastMs).toLocaleString('en-GB', { timeZone: 'Europe/Budapest' }) : '—'],
+      ['Kaynak', 'Open-Meteo: ' + mk.map(function(k){ return MODELS[k].key; }).join(', ')],
+      ['Ensemble agirliklari', ENSEMBLE_MEMBERS.map(function(k){ return k + '=' + ENSEMBLE_WEIGHTS[k]; }).join(', ')],
+      ['Fizik zinciri', 'Perez 1990 + IAM + Faiman + bifacial, albedo ' + PLANT.ground_albedo + ', PR ' + PLANT.pr_fixed],
+      ['Ampirik GHI duzeltmesi', PLANT.use_emp_corr ? 'ACIK (model sutunlari duzeltmeli; fizik-duzeltmesiz ensemble ayri sutunda)' : 'KAPALI'],
+      ['Zaman etiketi', 'Slot BASLANGICI, Europe/Budapest yerel saati, 15 dk'],
+      ['P10/P90', 'sigma = ' + PLANT.sigma_a + ' + ' + PLANT.sigma_b + ' x model spread, z = ' + PLANT.band_z],
+    ];
+    var ws3 = X.utils.aoa_to_sheet(info);
+    ws3['!cols'] = [{ wch: 24 }, { wch: 90 }];
+
+    var wb = X.utils.book_new();
+    X.utils.book_append_sheet(wb, ws,  '15dk_Tahmin');
+    X.utils.book_append_sheet(wb, ws2, 'Gunluk_Ozet');
+    X.utils.book_append_sheet(wb, ws3, 'Bilgi');
+    var p = budParts(new Date());
+    var pad = function(n){ return (n < 10 ? '0' : '') + n; };
+    var fname = 'PVPP01_forecast_' + p.year + pad(p.month) + pad(p.day) + '_' + pad(p.hour) + pad(p.minute) + '.xlsx';
+    X.writeFile(wb, fname, { compression: true });
+  } catch (e) {
+    console.error(e);
+    alert('Excel olusturulamadi: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = oldTxt;
+  }
 }
 
 // Wire up REDRAW map (must be after function definitions)
@@ -1780,9 +1788,6 @@ REDRAW.ghi   = drawGHI;
   // Initial load
   loadAll();
 
-  // Performance chart (non-blocking)
-  loadRmseData();
-  loadNominationSuggestion();
 })();
 </script>
 </body>
