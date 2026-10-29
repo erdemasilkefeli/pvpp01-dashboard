@@ -1570,17 +1570,29 @@ async function refreshNWP() {
     var keys = Object.keys(MODELS);
     // Bir model cokerse digerleri devam etsin — allSettled
     var settled = await Promise.allSettled(keys.map(function(k){ return fetchNWP(MODELS[k].key); }));
+    // Stage into a temporary object and only commit once we know at least one
+    // model came back. Writing straight into modelData was a trap: on a total
+    // fetch failure all four members were set to null and THEN the throw below
+    // fired, so modelData.ensemble kept its value from the previous successful
+    // refresh. The result was a half-updated state — a stale ensemble with no
+    // members behind it — which the chart and the Excel export both happily
+    // used. That is exactly what produced the 2026-10-29 09:05 export, where
+    // only the Ensemble columns had numbers.
     var ok = [];
+    var staged = {};
     settled.forEach(function(r, i){
       if (r.status === 'fulfilled') {
-        try { modelData[keys[i]] = processModel(r.value); ok.push(keys[i]); }
-        catch(e) { console.warn('[NWP] ' + keys[i] + ' islenemedi:', e); modelData[keys[i]] = null; }
+        try { staged[keys[i]] = processModel(r.value); ok.push(keys[i]); }
+        catch(e) { console.warn('[NWP] ' + keys[i] + ' islenemedi:', e); staged[keys[i]] = null; }
       } else {
         console.warn('[NWP] ' + keys[i] + ' alinamadi:', r.reason);
-        modelData[keys[i]] = null;
+        staged[keys[i]] = null;
       }
     });
+    // Nothing usable: leave the previous snapshot completely untouched, so what
+    // is on screen stays internally consistent and simply goes stale.
     if (!ok.length) throw new Error('hicbir NWP modeli alinamadi');
+    keys.forEach(function(k){ modelData[k] = staged[k]; });
 
     // ── Esit agirlikli ensemble ──────────────────────────────
     // ALADIN yalnizca 3 gunluk ufuk veriyor; ufkun otesinde null/0 donebilir.
@@ -1694,6 +1706,26 @@ async function exportExcel() {
   var btn = document.getElementById('btn-xls');
   if (!modelData.ensemble || !modelData.ensemble.length) {
     alert('Henuz NWP verisi yok — once verinin yuklenmesini bekleyin.'); return;
+  }
+  // Checking only the ensemble is not enough. Export the member columns only
+  // if the members are actually there, and say how old the data is: a file
+  // that looks authoritative but carries a stale ensemble and blank model
+  // columns is worse than no file.
+  var _have = ['ecmwf','icon','arpege','aladin'].filter(function(k){
+    return modelData[k] && modelData[k].length; });
+  var _ageMin = nwpLastMs ? Math.round((Date.now() - nwpLastMs) / 60000) : null;
+  if (!_have.length) {
+    alert('Son NWP yenilemesi basarisiz oldu: ensemble eski, model verisi yok.\n'
+        + 'Yenile tusuna basip tekrar deneyin.');
+    return;
+  }
+  if (_ageMin === null || _ageMin > 75) {
+    if (!confirm('NWP verisi ' + (_ageMin === null ? 'bilinmeyen surede' : _ageMin + ' dakika')
+               + ' once guncellendi (yenileme araligi 60 dk).\n'
+               + 'Eski veriyle Excel olusturulsun mu?')) return;
+  }
+  if (_have.length < 4) {
+    console.warn('[XLS] sadece su modeller mevcut: ' + _have.join(', '));
   }
   var oldTxt = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Excel…';
   try {
